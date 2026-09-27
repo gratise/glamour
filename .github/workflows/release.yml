@@ -93,7 +93,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: runtime-${{ matrix.asset }}
-          path: glamour-runtime-v${{ github.ref_name }}-${{ matrix.asset }}.tar.gz
+          path: glamour-runtime-${{ github.ref_name }}-${{ matrix.asset }}.tar.gz
           if-no-files-found: error
           retention-days: 1
 
