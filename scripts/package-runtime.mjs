@@ -115,9 +115,8 @@ async function packageWindowsNodeRuntime(nodeRuntime) {
   const serverDist = path.join(nodeRuntime, 'dist');
   const coreDist = path.join(nodeRuntime, 'node_modules/@glamour/core/dist');
   await mkdir(serverDist, { recursive: true });
-  await mkdir(coreDist, { recursive: true });
+  await cp(path.join(coreDirectory, 'dist'), coreDist, { recursive: true });
   await copyFile(path.join(serverDirectory, 'dist/index.js'), path.join(serverDist, 'index.js'));
-  await copyFile(path.join(coreDirectory, 'dist/index.js'), path.join(coreDist, 'index.js'));
   await writeFile(
     path.join(nodeRuntime, 'node_modules/@glamour/core/package.json'),
     `${JSON.stringify(corePackage, null, 2)}\n`,
