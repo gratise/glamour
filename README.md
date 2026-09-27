@@ -140,3 +140,7 @@ Metrics are lower-is-better normalized residuals, not a claim of percent-identic
 ## Development conventions
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for Conventional Commits, formatting, lint, TypeScript, Python, tests, and CI requirements.
+
+## Releases
+
+Push a `vMAJOR.MINOR.PATCH` tag to publish a GitHub Release. The release workflow reruns all quality gates and attaches a source archive for the tagged commit. Glamour is a local MCP/CLI tool, so releases are distributed through GitHub rather than deployed to a hosted application runtime. See [CONTRIBUTING.md](CONTRIBUTING.md) for the release process.

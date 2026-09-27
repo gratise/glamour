@@ -30,3 +30,7 @@ Put orchestration and visual contracts in `packages/core`. The CLI and MCP serve
 ## Commits and pull requests
 
 Use Conventional Commits (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `build:`, `ci:`, `chore:`). Keep each commit focused; the commit-msg hook validates the subject and the pre-commit hook runs the complete workspace test suite. Pull requests should explain behavior, list verification commands and update the README when setup or product behavior changes. CI and CodeQL must pass before merge.
+
+## Releases
+
+Push a `vMAJOR.MINOR.PATCH` tag to create a GitHub Release. The release workflow repeats the complete CI quality gates, builds the workspace, and attaches a source archive for that exact commit. Releases are source distributions for this local MCP/CLI project; there is no hosted application runtime to deploy.
