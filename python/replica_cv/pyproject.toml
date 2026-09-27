@@ -1,0 +1,27 @@
+[project]
+name = "glamour-cv"
+version = "0.1.0"
+description = "Deterministic geometry extraction worker for Glamour"
+requires-python = ">=3.12"
+dependencies = [
+  "numpy>=2.0,<3",
+  "opencv-python-headless>=4.10,<5",
+  "scikit-image>=0.24,<1",
+]
+
+[dependency-groups]
+dev = ["pytest>=8.3,<9", "ruff>=0.12,<1"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"

@@ -14,6 +14,7 @@
   "dependencies": {
     "playwright": "^1.55.0",
     "pngjs": "^7.0.0",
+    "sharp": "^0.34.5",
     "zod": "^4.1.12"
   },
   "devDependencies": {
