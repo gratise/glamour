@@ -19,6 +19,12 @@ let spacingReferencePath: string;
 let tempRoot: string;
 let core: typeof Core;
 
+function boundedNumber(value: string | null, fallback: number, minimum: number, maximum: number) {
+  if (value === null || value.trim() === '') return fallback;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= minimum && parsed <= maximum ? parsed : fallback;
+}
+
 beforeAll(async () => {
   tempRoot = await mkdtemp(path.join(tmpdir(), 'glamour-test-'));
   process.env.GLAMOUR_HOME = path.join(tempRoot, 'store');
@@ -141,10 +147,9 @@ beforeAll(async () => {
       return;
     }
     if (pathname === '/svg-curve') {
-      const controlX =
-        new URL(request.url ?? '/', 'http://localhost').searchParams.get('cx') ?? '50';
-      const controlY =
-        new URL(request.url ?? '/', 'http://localhost').searchParams.get('cy') ?? '25';
+      const params = new URL(request.url ?? '/', 'http://localhost').searchParams;
+      const controlX = boundedNumber(params.get('cx'), 50, 0, 160);
+      const controlY = boundedNumber(params.get('cy'), 25, 0, 100);
       response.end(
         `<!doctype html><html><body style="margin:0;background:white"><svg width="160" height="100" viewBox="0 0 160 100"><path id="curve" d="M15 80 C40 30 ${controlX} ${controlY} 65 30 C95 35 120 50 145 42" fill="none" stroke="#dc5a14" stroke-width="3" /></svg></body></html>`,
       );
@@ -164,10 +169,10 @@ beforeAll(async () => {
     }
     if (pathname === '/typography') {
       const params = new URL(request.url ?? '/', 'http://localhost').searchParams;
-      const size = params.get('size') ?? '20';
-      const weight = params.get('weight') ?? '400';
-      const lineHeight = params.get('line') ?? '24';
-      const spacing = params.get('spacing') ?? '0';
+      const size = boundedNumber(params.get('size'), 20, 8, 72);
+      const weight = boundedNumber(params.get('weight'), 400, 100, 900);
+      const lineHeight = boundedNumber(params.get('line'), 24, 8, 100);
+      const spacing = boundedNumber(params.get('spacing'), 0, -5, 10);
       response.end(
         `<!doctype html><html><body style="margin:0;background:white"><p id="copy" style="position:absolute;left:10px;top:10px;width:140px;margin:0;font-family:Arial,sans-serif;font-size:${size}px;font-weight:${weight};line-height:${lineHeight}px;letter-spacing:${spacing}px;color:#111">Visual fidelity matters</p></body></html>`,
       );
@@ -175,9 +180,9 @@ beforeAll(async () => {
     }
     if (pathname === '/effects') {
       const params = new URL(request.url ?? '/', 'http://localhost').searchParams;
-      const radius = params.get('radius') ?? '0';
-      const shadow = params.get('shadow') ?? 'none';
-      const opacity = params.get('opacity') ?? '1';
+      const radius = boundedNumber(params.get('radius'), 0, 0, 40);
+      const shadow = params.get('shadow') === 'elevation' ? '0px 4px 8px rgba(0,0,0,0.4)' : 'none';
+      const opacity = boundedNumber(params.get('opacity'), 1, 0, 1);
       response.end(
         `<!doctype html><html><body style="margin:0;background:white"><div id="panel" style="position:absolute;left:20px;top:20px;width:80px;height:50px;background:#ff00b4;border-radius:${radius}px;box-shadow:${shadow};opacity:${opacity}"></div></body></html>`,
       );
@@ -185,7 +190,9 @@ beforeAll(async () => {
     }
     if (pathname === '/gradient') {
       const end =
-        new URL(request.url ?? '/', 'http://localhost').searchParams.get('end') ?? '#ff00b4';
+        new URL(request.url ?? '/', 'http://localhost').searchParams.get('end') === 'blue'
+          ? '#0055ff'
+          : '#ff00b4';
       response.end(
         `<!doctype html><html><body style="margin:0;background:white"><div id="gradient" style="position:absolute;left:20px;top:20px;width:80px;height:50px;background:linear-gradient(90deg,#ff00b4 0%,${end} 100%)"></div></body></html>`,
       );
@@ -199,15 +206,21 @@ beforeAll(async () => {
     }
     if (pathname === '/overlap') {
       const color =
-        new URL(request.url ?? '/', 'http://localhost').searchParams.get('top') ?? '#ff00b4';
+        new URL(request.url ?? '/', 'http://localhost').searchParams.get('top') === 'blue'
+          ? '#0055ff'
+          : '#ff00b4';
       response.end(
         `<!doctype html><html><body style="margin:0;background:white"><div id="under" style="position:absolute;left:20px;top:20px;width:40px;height:30px;background:#00aa00;z-index:1"></div><div id="top" style="position:absolute;left:20px;top:20px;width:40px;height:30px;background:${color};z-index:2"></div></body></html>`,
       );
       return;
     }
     if (pathname === '/nested-padding') {
-      const padding =
-        new URL(request.url ?? '/', 'http://localhost').searchParams.get('padding') ?? '10';
+      const padding = boundedNumber(
+        new URL(request.url ?? '/', 'http://localhost').searchParams.get('padding'),
+        10,
+        0,
+        50,
+      );
       response.end(
         `<!doctype html><html><body style="margin:0;background:white"><div id="outer" style="position:absolute;left:20px;top:20px;width:120px;height:60px;padding:${padding}px"><div id="inner" style="width:20px;height:20px;background:#ff00b4"></div></div></body></html>`,
       );
@@ -215,7 +228,9 @@ beforeAll(async () => {
     }
     if (pathname === '/border') {
       const border =
-        new URL(request.url ?? '/', 'http://localhost').searchParams.get('value') ?? 'none';
+        new URL(request.url ?? '/', 'http://localhost').searchParams.get('value') === 'blue'
+          ? '2px solid #0055ff'
+          : 'none';
       response.end(
         `<!doctype html><html><body style="margin:0;background:white"><div id="panel" style="position:absolute;left:20px;top:20px;width:80px;height:50px;box-sizing:border-box;background:#ff00b4;border:${border}"></div></body></html>`,
       );
@@ -400,9 +415,18 @@ describe('DOM visual workflow', () => {
     await writeFile(typographyReference, await page.screenshot({ type: 'png' }));
     const effectsReference = path.join(tempRoot, 'effects-reference.png');
     await page.goto(`${baseUrl}/effects`);
+    expect(
+      await page.locator('#panel').evaluate((element) => getComputedStyle(element).borderRadius),
+    ).toBe('0px');
+    expect(
+      await page.locator('#panel').evaluate((element) => getComputedStyle(element).backgroundColor),
+    ).toBe('rgb(255, 0, 180)');
+    expect(
+      await page.locator('#panel').evaluate((element) => getComputedStyle(element).opacity),
+    ).toBe('1');
     await writeFile(effectsReference, await page.screenshot({ type: 'png' }));
     const gradientReference = path.join(tempRoot, 'gradient-reference.png');
-    await page.goto(`${baseUrl}/gradient?end=%23ff00b4`);
+    await page.goto(`${baseUrl}/gradient?end=magenta`);
     await writeFile(gradientReference, await page.screenshot({ type: 'png' }));
     await browser.close();
 
@@ -425,7 +449,7 @@ describe('DOM visual workflow', () => {
 
     for (const [query, classification] of [
       ['?radius=12', 'border-radius'],
-      ['?shadow=0px%204px%208px%20rgba(0,0,0,0.4)', 'shadow'],
+      ['?shadow=elevation', 'shadow'],
       ['?opacity=0.5', 'paint'],
     ] as const) {
       const project = await core.createProject({
@@ -437,14 +461,14 @@ describe('DOM visual workflow', () => {
       const result = await core.compareProject(project.projectId);
       expect(
         result.regions.some((region) => region.classification === classification),
-        `${classification}: ${JSON.stringify(result.regions.map(({ classification: kind, candidates }) => ({ classification: kind, candidates })))}`,
+        `${classification}: ${JSON.stringify({ loss: result.loss, style: result.nodes.find((node) => node.selector === '#panel')?.borderRadius, regions: result.regions })}`,
       ).toBe(true);
     }
 
     const gradientProject = await core.createProject({
       name: 'gradient-stop-fixture',
       referencePath: gradientReference,
-      targetUrl: `${baseUrl}/gradient?end=%230055ff`,
+      targetUrl: `${baseUrl}/gradient?end=blue`,
       viewport: { width: 160, height: 100, deviceScaleFactor: 1 },
     });
     const gradientResult = await core.compareProject(gradientProject.projectId);
@@ -466,14 +490,14 @@ describe('DOM visual workflow', () => {
 
     const browser = await chromium.launch({ headless: true });
     const page = await browser.newPage({ viewport: { width: 160, height: 100 } });
-    await page.goto(`${baseUrl}/overlap?top=%23ff00b4`);
+    await page.goto(`${baseUrl}/overlap?top=magenta`);
     const overlapReference = path.join(tempRoot, 'overlap-reference.png');
     await writeFile(overlapReference, await page.screenshot({ type: 'png' }));
     await browser.close();
     const overlapProject = await core.createProject({
       name: 'overlap-z-index-fixture',
       referencePath: overlapReference,
-      targetUrl: `${baseUrl}/overlap?top=%230055ff`,
+      targetUrl: `${baseUrl}/overlap?top=blue`,
       viewport: { width: 160, height: 100, deviceScaleFactor: 1 },
     });
     const overlapResult = await core.compareProject(overlapProject.projectId);
@@ -506,7 +530,7 @@ describe('DOM visual workflow', () => {
     const borderProject = await core.createProject({
       name: 'border-fixture',
       referencePath: borderReference,
-      targetUrl: `${baseUrl}/border?value=2px%20solid%20%230055ff`,
+      targetUrl: `${baseUrl}/border?value=blue`,
       viewport: { width: 160, height: 100, deviceScaleFactor: 1 },
     });
     const borderResult = await core.compareProject(borderProject.projectId);
