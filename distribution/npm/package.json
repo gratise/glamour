@@ -17,10 +17,10 @@
   },
   "mcpName": "io.github.gratise/glamour",
   "bin": {
-    "glamour-mcp": "./bin/glamour-mcp.mjs"
+    "glamour-mcp": "bin/glamour-mcp"
   },
   "files": [
-    "bin/glamour-mcp.mjs",
+    "bin/glamour-mcp",
     "scripts/start-mcp.mjs",
     "README.md"
   ],

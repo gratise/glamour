@@ -50,8 +50,8 @@ assert.equal(npmPackage.mcpName, registryServer.name);
 assert.equal(registryServer.version, manifest.version);
 assert.equal(registryServer.packages[0].identifier, npmPackage.name);
 assert.equal(registryServer.packages[0].transport.type, 'stdio');
-assert.deepEqual(npmPackage.bin, { 'glamour-mcp': './bin/glamour-mcp.mjs' });
-await readFile(path.join(root, 'distribution/npm/bin/glamour-mcp.mjs'));
+assert.deepEqual(npmPackage.bin, { 'glamour-mcp': 'bin/glamour-mcp' });
+await readFile(path.join(root, 'distribution/npm/bin/glamour-mcp'));
 const packedPackage = JSON.parse(
   execFileSync('npm', ['pack', '--dry-run', '--json'], {
     cwd: path.join(root, 'distribution/npm'),
@@ -59,7 +59,7 @@ const packedPackage = JSON.parse(
   }),
 )[0];
 const packagedFiles = packedPackage.files.map((file) => file.path);
-assert(packagedFiles.includes('bin/glamour-mcp.mjs'));
+assert(packagedFiles.includes('bin/glamour-mcp'));
 assert(packagedFiles.includes('scripts/start-mcp.mjs'));
 assert.equal(
   packedPackage.bundled.length,
