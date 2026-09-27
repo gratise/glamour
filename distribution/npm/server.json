@@ -1,0 +1,21 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.gratise/glamour",
+  "description": "Browser-measured visual debugging and verification tools for coding agents.",
+  "repository": {
+    "url": "https://github.com/gratise/glamour",
+    "source": "github"
+  },
+  "version": "0.2.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "glamour-mcp",
+      "version": "0.2.0",
+      "runtimeHint": "npx",
+      "runtimeArguments": [{ "type": "positional", "value": "-y" }],
+      "transport": { "type": "stdio" }
+    }
+  ]
+}

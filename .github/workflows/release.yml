@@ -40,11 +40,13 @@ jobs:
           node --input-type=module -e '
             import { readFileSync } from "node:fs";
             const expected = process.env.GITHUB_REF_NAME.slice(1);
-            const files = ["package.json", "apps/cli/package.json", "apps/mcp-server/package.json", "packages/core/package.json", "plugins/glamour/plugin.json", "plugins/glamour/.codex-plugin/plugin.json"];
+            const files = ["package.json", "apps/cli/package.json", "apps/mcp-server/package.json", "packages/core/package.json", "plugins/glamour/plugin.json", "plugins/glamour/.codex-plugin/plugin.json", "distribution/npm/package.json"];
             for (const file of files) {
               const actual = JSON.parse(readFileSync(file, "utf8")).version;
               if (actual !== expected) throw new Error(`${file} version ${actual} does not match ${expected}`);
             }
+            const registryVersion = JSON.parse(readFileSync("distribution/npm/server.json", "utf8")).version;
+            if (registryVersion !== expected) throw new Error(`distribution/npm/server.json version ${registryVersion} does not match ${expected}`);
           '
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @glamour/core exec playwright install --with-deps chromium
@@ -52,6 +54,10 @@ jobs:
       - run: pnpm format:check
       - run: pnpm lint
       - run: pnpm validate:agent
+      - name: Validate MCP Registry manifest
+        run: |
+          curl -fsSL https://github.com/modelcontextprotocol/registry/releases/download/v1.8.1/mcp-publisher_linux_amd64.tar.gz | tar -xz mcp-publisher
+          ./mcp-publisher validate distribution/npm/server.json
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
