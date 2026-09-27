@@ -1,8 +1,19 @@
-import { access, cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import {
+  access,
+  copyFile,
+  cp,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
 import { execFileSync, spawn } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
+import { clearTimeout, setTimeout } from 'node:timers';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -55,6 +66,121 @@ async function findExecutable(command) {
   throw new Error(`${command} is required to package the standalone Glamour runtime.`);
 }
 
+async function packageWindowsNodeRuntime(nodeRuntime) {
+  const serverDirectory = path.join(root, 'apps/mcp-server');
+  const coreDirectory = path.join(root, 'packages/core');
+  const serverPackage = JSON.parse(
+    await readFile(path.join(serverDirectory, 'package.json'), 'utf8'),
+  );
+  const corePackage = JSON.parse(await readFile(path.join(coreDirectory, 'package.json'), 'utf8'));
+  const dependencies = {};
+
+  for (const [workspaceDirectory, packageData] of [
+    [serverDirectory, serverPackage],
+    [coreDirectory, corePackage],
+  ]) {
+    for (const name of Object.keys(packageData.dependencies ?? {})) {
+      if (name === '@glamour/core') continue;
+      const dependencyManifest = JSON.parse(
+        await readFile(path.join(workspaceDirectory, 'node_modules', name, 'package.json'), 'utf8'),
+      );
+      const previous = dependencies[name];
+      if (previous && previous !== dependencyManifest.version) {
+        throw new Error(`The runtime requires conflicting versions of ${name}.`);
+      }
+      dependencies[name] = dependencyManifest.version;
+    }
+  }
+
+  await mkdir(nodeRuntime, { recursive: true });
+  await writeFile(
+    path.join(nodeRuntime, 'package.json'),
+    `${JSON.stringify(
+      {
+        name: '@glamour/mcp-runtime',
+        version,
+        private: true,
+        type: 'module',
+        packageManager: rootPackage.packageManager,
+        dependencies,
+      },
+      null,
+      2,
+    )}\n`,
+  );
+  await run('pnpm', ['install', '--prod', '--ignore-scripts', '--no-frozen-lockfile'], {
+    cwd: nodeRuntime,
+  });
+
+  const serverDist = path.join(nodeRuntime, 'dist');
+  const coreDist = path.join(nodeRuntime, 'node_modules/@glamour/core/dist');
+  await mkdir(serverDist, { recursive: true });
+  await mkdir(coreDist, { recursive: true });
+  await copyFile(path.join(serverDirectory, 'dist/index.js'), path.join(serverDist, 'index.js'));
+  await copyFile(path.join(coreDirectory, 'dist/index.js'), path.join(coreDist, 'index.js'));
+  await writeFile(
+    path.join(nodeRuntime, 'node_modules/@glamour/core/package.json'),
+    `${JSON.stringify(corePackage, null, 2)}\n`,
+  );
+}
+
+async function smokeMcpServer(serverEntry, cwd) {
+  const child = spawn(process.execPath, [serverEntry], {
+    cwd,
+    stdio: ['pipe', 'pipe', 'inherit'],
+    env: { ...process.env, GLAMOUR_HOME: path.join(stagingParent, 'mcp-smoke') },
+  });
+  let output = '';
+  let pending = '';
+  const responses = new Map();
+  child.stdout.setEncoding('utf8').on('data', (chunk) => {
+    pending += chunk;
+    for (const line of pending.split('\n').slice(0, -1)) {
+      if (!line) continue;
+      const response = JSON.parse(line);
+      const resolve = responses.get(response.id);
+      if (resolve) {
+        responses.delete(response.id);
+        resolve(response);
+      }
+    }
+    pending = pending.slice(pending.lastIndexOf('\n') + 1);
+    output += chunk;
+  });
+
+  const request = (id, method, params) =>
+    new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        responses.delete(id);
+        reject(new Error(`Packaged MCP runtime timed out during ${method}.\n${output}`));
+      }, 15_000);
+      responses.set(id, (response) => {
+        clearTimeout(timeout);
+        if (response.error) reject(new Error(JSON.stringify(response.error)));
+        else resolve(response.result);
+      });
+      child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`);
+    });
+
+  try {
+    await request(1, 'initialize', {
+      protocolVersion: '2024-11-05',
+      capabilities: {},
+      clientInfo: { name: 'runtime-package-smoke', version: '1.0.0' },
+    });
+    child.stdin.write(
+      `${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' })}\n`,
+    );
+    const toolResult = await request(2, 'tools/list', {});
+    if (!toolResult.tools.some((tool) => tool.name === 'visual.create_project')) {
+      throw new Error('The packaged MCP runtime did not expose Glamour visual tools.');
+    }
+  } finally {
+    child.kill();
+    await new Promise((resolve) => child.once('exit', resolve));
+  }
+}
+
 const uvExecutable = await findExecutable('uv');
 const stagingParent = await mkdtemp(path.join(os.tmpdir(), 'glamour-runtime-'));
 const stagingRoot = path.join(stagingParent, 'runtime');
@@ -65,7 +191,11 @@ const archive = path.join(root, `glamour-runtime-v${version}-${target}-${archite
 
 try {
   await mkdir(stagingRoot, { recursive: true });
-  await run('pnpm', ['deploy', '--filter', '@glamour/mcp-server', '--prod', nodeRuntime]);
+  if (process.platform === 'win32') {
+    await packageWindowsNodeRuntime(nodeRuntime);
+  } else {
+    await run('pnpm', ['deploy', '--filter', '@glamour/mcp-server', '--prod', nodeRuntime]);
+  }
   await mkdir(pythonProject, { recursive: true });
   await cp(path.join(root, 'python/glamour_cv/src'), path.join(pythonProject, 'src'), {
     recursive: true,
@@ -136,6 +266,7 @@ try {
     path.join(stagingRoot, 'runtime.json'),
     `${JSON.stringify({ pythonExecutable: relativePythonExecutable.split(path.sep).join('/') }, null, 2)}\n`,
   );
+  await smokeMcpServer(path.join(nodeRuntime, 'dist/index.js'), nodeRuntime);
   await run('tar', ['-czf', archive, '-C', stagingRoot, '.']);
   process.stdout.write(`Created ${archive}\n`);
 } finally {
