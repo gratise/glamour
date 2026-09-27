@@ -23,7 +23,7 @@ import {
   browserSettingsSchema,
 } from '@glamour/core';
 
-const server = new McpServer({ name: 'glamour', version: '0.1.0' });
+const server = new McpServer({ name: 'glamour', version: '0.2.0' });
 const projectId = z.string().uuid();
 const json = (value: unknown) => ({
   content: [{ type: 'text' as const, text: JSON.stringify(value, null, 2) }],

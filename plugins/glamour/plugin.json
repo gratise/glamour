@@ -1,0 +1,11 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "glamour",
+  "version": "0.2.0",
+  "description": "Browser-measured visual debugging and verification tools for coding agents.",
+  "author": { "name": "Gratise", "url": "https://github.com/gratise" },
+  "repository": "https://github.com/gratise/glamour",
+  "license": "MIT",
+  "mcpServers": "./mcp.json",
+  "skills": "./skills/"
+}

@@ -1,11 +1,12 @@
 {
   "name": "glamour",
-  "version": "0.1.0",
-  "description": "Help coding agents build and verify high-fidelity websites from visual references.",
+  "version": "0.2.0",
+  "description": "Give coding agents browser-measured tools to build and verify websites from visual references.",
   "author": {
     "name": "Gratise"
   },
   "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "Glamour",
     "shortDescription": "Build and verify complex websites from references.",
@@ -13,6 +14,6 @@
     "developerName": "Gratise",
     "category": "Productivity",
     "capabilities": ["Website implementation", "Visual verification"],
-    "defaultPrompt": "Build this website from the reference and verify it with Glamour."
+    "defaultPrompt": ["Build this site from the attached reference and verify it with Glamour."]
   }
 }

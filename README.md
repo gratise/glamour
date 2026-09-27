@@ -4,10 +4,10 @@ Glamour is a local-first visual compiler and debugging workspace for coding agen
 
 ## Requirements
 
-- Node.js 22+, pnpm 9.15.9, and Playwright Chromium.
-- Python 3.12+ and `uv` for geometry extraction.
+- **Installed plugin:** Node.js 22+ available to the agent host and network access on first use. The plugin downloads and caches its versioned runtime and Chromium automatically; users do not install Python, `uv`, pnpm, or a browser.
+- **Source development:** Node.js 22+, pnpm 9.15.9, Python 3.12+, and `uv`.
 
-## Install and verify
+## Develop and verify from source
 
 ```sh
 pnpm install
@@ -101,31 +101,34 @@ The CLI and MCP server call the same core APIs. `compare` without a reference ru
 
 ## Coding-agent integration
 
-Glamour is designed to work with a coding agent that edits the website source. Its Codex plugin packages the reusable website-building workflow as a skill; the agent implements the application, while Glamour's shared engine measures browser output and verifies corrections. The skill works with either the CLI or MCP server, so MCP is optional.
+Glamour is an agent tool, not a website builder UI. The coding agent edits the user's existing website; Glamour supplies MCP tools to measure browser output and verify corrections. The Codex plugin installs both the workflow skill and the MCP connection. It downloads the matching, version-pinned runtime on first activation, so users do not clone or build the Glamour repository.
 
-Install the plugin from this repository's catalog in Codex:
+### Start using Glamour in Codex
 
-```sh
-codex plugin marketplace add gratise/glamour
-```
+1. Add the marketplace and install the plugin once:
 
-Install the CLI from a Glamour checkout so the agent can run the full workflow without MCP:
+   ```sh
+   codex plugin marketplace add gratise/glamour
+   codex plugin add glamour@gratise-glamour
+   ```
 
-```sh
-pnpm install --frozen-lockfile
-pnpm exec playwright install chromium
-uv sync --project python/glamour_cv --group dev
-pnpm build
-pnpm --dir apps/cli link --global
-```
+   Or use `/plugins` to install Glamour after adding the marketplace. Codex retrieves plugin files itself; you do not manually clone or build the Glamour repository.
 
-Then ask the agent to implement the target route from a reference image or prepared bundle. The `glamour-site-builder` skill instructs it to inspect the site repository, create real semantic and responsive source code, compare all provided references, inspect the largest mismatches, try transient overrides where useful, apply verified changes, and report remaining uncertainty. You can instead register `apps/mcp-server/dist/index.js` as shown below; both entry points call the same core.
+2. Open the website project you want the agent to change. Do not open a Glamour checkout.
+3. Attach a reference screenshot to the conversation. A prepared reference bundle is optional.
+4. Ask: `Implement this page in the current project from the attached reference. Use Glamour to compare it in the browser, fix the largest mismatches, and report anything still uncertain.`
 
-For a source checkout where global linking is unavailable, run CLI operations from the Glamour repository with `pnpm --filter @glamour/cli exec node dist/index.js ...`.
+The plugin's first activation downloads its pinned Node and Python runtime. The first visual comparison downloads pinned Chromium automatically; all browser and runtime files are cached in the plugin's persistent data directory. The agent starts or reuses the target site's development server and invokes Glamour tools as part of its work.
+
+The skill instructs the agent to inspect the site repository, create real semantic and responsive source code, compare all provided references, inspect the largest mismatches, try transient overrides where useful, apply verified changes, and report remaining uncertainty. No human-facing Glamour UI is part of this workflow.
+
+### Other MCP-compatible agents
+
+The plugin also includes a portable Agent Plugin manifest and stdio MCP configuration for agent hosts that support the Agent Plugins specification. Use that host's normal Git-based plugin installation flow for `gratise/glamour`; the host retrieves the plugin files. A standalone package-registry distribution for clients that accept only raw MCP JSON is not published yet.
 
 ## MCP server
 
-Build with `pnpm build` and register `apps/mcp-server/dist/index.js` as an stdio MCP server. Example:
+For local development, build with `pnpm build` and register `apps/mcp-server/dist/index.js` as an stdio MCP server. Example:
 
 ```json
 {
@@ -171,4 +174,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for Conventional Commits, formatting, lin
 
 ## Releases
 
-Push a `vMAJOR.MINOR.PATCH` tag to publish a GitHub Release. The release workflow reruns all quality gates and attaches a source archive for the tagged commit. Glamour is a local MCP/CLI tool, so releases are distributed through GitHub rather than deployed to a hosted application runtime. See [CONTRIBUTING.md](CONTRIBUTING.md) for the release process.
+Push a `vMAJOR.MINOR.PATCH` tag matching the plugin version to publish a GitHub Release. The release workflow reruns all quality gates and publishes source plus standalone Node/Python runtime archives for macOS arm64/x64, Linux arm64/x64, and Windows x64. Installed plugins fetch the archive matching the current machine. See [CONTRIBUTING.md](CONTRIBUTING.md) for the release process.

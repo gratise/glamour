@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "glamour": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${PLUGIN_ROOT}/scripts/start-mcp.mjs"],
+      "env": {
+        "GLAMOUR_HOME": "${PLUGIN_DATA}/workspace",
+        "GLAMOUR_DATA_DIR": "${PLUGIN_DATA}",
+        "GLAMOUR_RUNTIME_VERSION": "0.2.0",
+        "PLAYWRIGHT_BROWSERS_PATH": "${PLUGIN_DATA}/browsers"
+      }
+    }
+  }
+}

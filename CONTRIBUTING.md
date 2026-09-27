@@ -24,7 +24,7 @@ The workspace format, lint, and test scripts include Ruff and pytest in addition
 
 Add deterministic fixtures for behavior changes. Browser goldens and geometry integration checks use Playwright Chromium; do not compare screenshots captured from different OS/browser/font stacks as if they were equivalent. Python unit tests should keep generated images in pytest's temporary directory.
 
-The agent-integration validation checks that the Codex plugin, repository marketplace entry, and website-building skill remain installable and discoverable.
+The agent-integration validation checks that the Codex and portable Agent Plugin manifests, MCP launch configuration, repository marketplace entry, runtime bootstrap, and website-building skill remain installable and discoverable.
 
 ## Architecture
 
@@ -36,4 +36,4 @@ Use Conventional Commits (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `build
 
 ## Releases
 
-Push a `vMAJOR.MINOR.PATCH` tag to create a GitHub Release. The release workflow repeats the complete CI quality gates, builds the workspace, and attaches a source archive for that exact commit. Releases are source distributions for this local MCP/CLI project; there is no hosted application runtime to deploy.
+Push a `vMAJOR.MINOR.PATCH` tag matching the plugin manifest version to create a GitHub Release. The release workflow repeats the complete CI quality gates, builds the workspace, packages a standalone MCP runtime on macOS arm64/x64, Linux arm64/x64, and Windows x64, and attaches those archives plus a source archive for that exact commit. The plugin downloads the matching archive automatically.
