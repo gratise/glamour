@@ -12,7 +12,7 @@ Glamour is a local-first visual compiler and debugging workspace for coding agen
 ```sh
 pnpm install
 pnpm exec playwright install chromium
-uv sync --project python/replica_cv --group dev
+uv sync --project python/glamour_cv --group dev
 pnpm format:check
 pnpm lint
 pnpm typecheck
@@ -53,6 +53,8 @@ The minimum input is a lossless PNG plus exact viewport and DPR. For multi-state
   "layout": [],
   "typography": [],
   "colors": [],
+  "gradients": [],
+  "effects": [],
   "geometry": [],
   "interactions": [],
   "responsiveMappings": [],
@@ -62,7 +64,22 @@ The minimum input is a lossless PNG plus exact viewport and DPR. For multi-state
 }
 ```
 
-Bundle fields retain provenance (`exact`, `provided`, `measured`, `derived`, `estimated`, `unknown`) and confidence. Explicit facts are surfaced by `analyze`; measured pixel palette and captured browser geometry are distinguished from supplied facts. Multiple references are rendered independently. Responsive changes are observations; breakpoint behavior remains a hypothesis unless supplied explicitly. Crops, assets, font metadata, text blocks, layout relations, scene graph, states, interactions, geometry, and chart data are preserved in the versioned Reference IR.
+Bundle fields retain provenance (`exact`, `provided`, `measured`, `derived`, `estimated`, `unknown`) and confidence. Scene nodes can store raw measurements separately from semantic interpretation so an estimated role cannot overwrite exact geometry. Explicit facts are surfaced by `analyze`; measured pixel palette, full-page bitmap/content dimensions, and captured browser geometry are distinguished from supplied facts. Multiple references are rendered independently. Responsive changes are observations; breakpoint behavior remains a hypothesis unless supplied explicitly. Crops, assets, font metadata, text blocks, layout relations, scene graph, states, interactions, geometry, and chart data are preserved in the versioned Reference IR.
+
+Each screenshot may set its own `targetUrl` and `actions` so state references are reproducible against the live implementation. Actions run in order before readiness checks and capture. Supported actions are `click`, `hover`, `focus`, `fill`, `press`, `selectOption`, `check`, and `uncheck`; the same setup is replayed for overrides and optimization. For example:
+
+```json
+{
+  "referenceId": "menu-open",
+  "path": "states/menu-open.png",
+  "viewport": { "width": 1440, "height": 900, "deviceScaleFactor": 1 },
+  "state": "menu-open",
+  "targetUrl": "http://localhost:3000/",
+  "actions": [{ "type": "click", "selector": "[aria-label='Open menu']" }]
+}
+```
+
+The core exports Zod schemas for the versioned bundle, screenshot/action, asset/font, typography, scene/layout, color/effect, crop, geometry, interaction, responsive mapping, and uncertainty records. Extended records preserve domain-specific fields while validating the shared typed fields.
 
 ## CLI
 

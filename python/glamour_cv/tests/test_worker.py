@@ -3,7 +3,7 @@ from __future__ import annotations
 import cv2
 import numpy as np
 
-from replica_cv.worker import extract
+from glamour_cv.worker import extract
 
 
 def _fixture(tmp_path, closed: bool) -> dict:

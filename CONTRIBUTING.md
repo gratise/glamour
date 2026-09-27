@@ -4,7 +4,7 @@
 
 - Node.js 22+, pnpm 9.15.9, Python 3.12+, and `uv`.
 - Install JavaScript dependencies with `pnpm install` and Chromium with `pnpm exec playwright install chromium`.
-- Install the geometry worker with `uv sync --project python/replica_cv --group dev`.
+- Install the geometry worker with `uv sync --project python/glamour_cv --group dev`.
 
 ## Before committing
 

@@ -8,11 +8,11 @@
   },
   "scripts": {
     "build": "pnpm -r build",
-    "lint": "eslint . && uv run --project python/replica_cv ruff check",
-    "format": "prettier --write . && uv run --project python/replica_cv ruff format",
-    "format:check": "prettier --check . && uv run --project python/replica_cv ruff format --check",
+    "lint": "eslint . && uv run --project python/glamour_cv ruff check",
+    "format": "prettier --write . && uv run --project python/glamour_cv ruff format",
+    "format:check": "prettier --check . && uv run --project python/glamour_cv ruff format --check",
     "typecheck": "pnpm -r build && pnpm -r typecheck",
-    "test": "vitest run && (cd python/replica_cv && uv run --project . pytest)",
+    "test": "vitest run && (cd python/glamour_cv && uv run --project . pytest)",
     "test:watch": "vitest",
     "prepare": "husky"
   },
