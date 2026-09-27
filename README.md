@@ -99,6 +99,30 @@ glamour finalize <project-id>
 
 The CLI and MCP server call the same core APIs. `compare` without a reference runs every viewport/state reference. Overrides are transient and never edit source. Optimizer search has a bounded evaluation and timeout budget.
 
+## Coding-agent integration
+
+Glamour is designed to work with a coding agent that edits the website source. Its Codex plugin packages the reusable website-building workflow as a skill; the agent implements the application, while Glamour's shared engine measures browser output and verifies corrections. The skill works with either the CLI or MCP server, so MCP is optional.
+
+Install the plugin from this repository's catalog in Codex:
+
+```sh
+codex plugin marketplace add gratise/glamour
+```
+
+Install the CLI from a Glamour checkout so the agent can run the full workflow without MCP:
+
+```sh
+pnpm install --frozen-lockfile
+pnpm exec playwright install chromium
+uv sync --project python/glamour_cv --group dev
+pnpm build
+pnpm --dir apps/cli link --global
+```
+
+Then ask the agent to implement the target route from a reference image or prepared bundle. The `glamour-site-builder` skill instructs it to inspect the site repository, create real semantic and responsive source code, compare all provided references, inspect the largest mismatches, try transient overrides where useful, apply verified changes, and report remaining uncertainty. You can instead register `apps/mcp-server/dist/index.js` as shown below; both entry points call the same core.
+
+For a source checkout where global linking is unavailable, run CLI operations from the Glamour repository with `pnpm --filter @glamour/cli exec node dist/index.js ...`.
+
 ## MCP server
 
 Build with `pnpm build` and register `apps/mcp-server/dist/index.js` as an stdio MCP server. Example:
