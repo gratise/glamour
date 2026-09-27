@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { stdout } from 'node:process';
@@ -15,6 +16,12 @@ const portableManifest = JSON.parse(await readFile(path.join(pluginPath, 'plugin
 const portableMcp = JSON.parse(await readFile(path.join(pluginPath, 'mcp.json'), 'utf8'));
 const marketplace = JSON.parse(
   await readFile(path.join(root, '.agents/plugins/marketplace.json'), 'utf8'),
+);
+const npmPackage = JSON.parse(
+  await readFile(path.join(root, 'distribution/npm/package.json'), 'utf8'),
+);
+const registryServer = JSON.parse(
+  await readFile(path.join(root, 'distribution/npm/server.json'), 'utf8'),
 );
 const entry = marketplace.plugins.find((candidate) => candidate.name === manifest.name);
 assert(entry, 'The Glamour plugin must be discoverable from the repository marketplace.');
@@ -37,6 +44,28 @@ assert.equal(mcp.mcpServers.glamour.command, 'node');
 assert.deepEqual(mcp.mcpServers.glamour.args, ['${PLUGIN_ROOT}/scripts/start-mcp.mjs']);
 assert.match(mcp.mcpServers.glamour.env.GLAMOUR_RUNTIME_VERSION, /^\d+\.\d+\.\d+$/);
 await readFile(path.join(pluginPath, 'scripts/start-mcp.mjs'));
+assert.equal(npmPackage.name, 'glamour-mcp');
+assert.equal(npmPackage.version, manifest.version);
+assert.equal(npmPackage.mcpName, registryServer.name);
+assert.equal(registryServer.version, manifest.version);
+assert.equal(registryServer.packages[0].identifier, npmPackage.name);
+assert.equal(registryServer.packages[0].transport.type, 'stdio');
+assert.deepEqual(npmPackage.bin, { 'glamour-mcp': './bin/glamour-mcp.mjs' });
+await readFile(path.join(root, 'distribution/npm/bin/glamour-mcp.mjs'));
+const packedPackage = JSON.parse(
+  execFileSync('npm', ['pack', '--dry-run', '--json'], {
+    cwd: path.join(root, 'distribution/npm'),
+    encoding: 'utf8',
+  }),
+)[0];
+const packagedFiles = packedPackage.files.map((file) => file.path);
+assert(packagedFiles.includes('bin/glamour-mcp.mjs'));
+assert(packagedFiles.includes('scripts/start-mcp.mjs'));
+assert.equal(
+  packedPackage.bundled.length,
+  0,
+  'The npm launcher must not ship development dependencies.',
+);
 
 const skillPath = path.join(pluginPath, 'skills/glamour-site-builder/SKILL.md');
 const skill = await readFile(skillPath, 'utf8');

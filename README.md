@@ -124,7 +124,26 @@ The skill instructs the agent to inspect the site repository, create real semant
 
 ### Other MCP-compatible agents
 
-The plugin also includes a portable Agent Plugin manifest and stdio MCP configuration for agent hosts that support the Agent Plugins specification. Use that host's normal Git-based plugin installation flow for `gratise/glamour`; the host retrieves the plugin files. A standalone package-registry distribution for clients that accept only raw MCP JSON is not published yet.
+### Any MCP-compatible IDE or agent
+
+After the public npm package is available, add this server to the agent's MCP settings. The config shape below is used by stdio MCP clients such as Claude Desktop and Cursor; other clients may call the section `servers` instead of `mcpServers`:
+
+```json
+{
+  "mcpServers": {
+    "glamour": {
+      "command": "npx",
+      "args": ["-y", "glamour-mcp@latest"]
+    }
+  }
+}
+```
+
+Alternatively, install the launcher globally with `npm install --global glamour-mcp`, then set the MCP command to `glamour-mcp` with no arguments.
+
+The package contains only a small launcher. It downloads and caches the matching runtime on first start; no Glamour checkout, Python, `uv`, pnpm, or browser installation is required. Node.js 22+ and network access are needed for the first launch. The release workflow publishes the package to npm and adds its metadata to the official MCP Registry, where supported clients can install it from their server browser.
+
+After connecting the server, open the website project in the agent, attach the reference screenshot, and ask: `Implement this page in the current project from the attached reference. Use Glamour to compare it in the browser, fix the largest mismatches, and report anything still uncertain.`
 
 ## MCP server
 
