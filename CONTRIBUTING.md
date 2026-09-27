@@ -1,15 +1,32 @@
 # Contributing
 
-## Development
+## Development environment
 
-- Node.js 22 or newer and pnpm 9.15.9 are required.
-- Run `pnpm install`, then `pnpm exec playwright install chromium`.
-- Run `pnpm format`, `pnpm lint`, `pnpm typecheck`, `pnpm test`, and `pnpm build` before opening a pull request.
+- Node.js 22+, pnpm 9.15.9, Python 3.12+, and `uv`.
+- Install JavaScript dependencies with `pnpm install` and Chromium with `pnpm exec playwright install chromium`.
+- Install the geometry worker with `uv sync --project python/replica_cv --group dev`.
 
-## Commits
+## Before committing
 
-Use Conventional Commits: `feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `build:`, `ci:`, or `chore:`. Keep each commit focused and describe the user-visible change in the subject.
+Run the same quality gates as CI:
 
-## Pull requests
+```sh
+pnpm format
+pnpm format:check
+pnpm lint
+pnpm typecheck
+pnpm test
+pnpm build
+```
 
-Keep pull requests focused, include a short summary and verification notes, and update documentation when behavior or setup changes. CI must pass before merging.
+The workspace format, lint, and test scripts include Ruff and pytest in addition to Prettier, ESLint, and Vitest.
+
+Add deterministic fixtures for behavior changes. Browser goldens and geometry integration checks use Playwright Chromium; do not compare screenshots captured from different OS/browser/font stacks as if they were equivalent. Python unit tests should keep generated images in pytest's temporary directory.
+
+## Architecture
+
+Put orchestration and visual contracts in `packages/core`. The CLI and MCP server must call those same core functions. Large image/vector payloads belong in the artifact store and MCP resources, not tool text. Keep schema changes versioned and retain provenance/confidence for supplied or inferred facts. Prefer measured deltas; represent unresolved conclusions as uncertainty. Keep source edits to the target application outside Glamour's transient override workflow.
+
+## Commits and pull requests
+
+Use Conventional Commits (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `build:`, `ci:`, `chore:`). Keep each commit focused; the commit-msg hook validates the subject and the pre-commit hook runs the complete workspace test suite. Pull requests should explain behavior, list verification commands and update the README when setup or product behavior changes. CI and CodeQL must pass before merge.

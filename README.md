@@ -1,20 +1,18 @@
 # Glamour
 
-Glamour is a local-first visual debugging tool for coding agents. It renders a web page in pinned Playwright Chromium, compares the result with a reference screenshot, ranks mismatch regions, attributes them to DOM candidates, and can verify temporary CSS changes without editing source files.
-
-The first release focuses on ordinary DOM/CSS pages. SVG/Canvas tracing, geometry extraction, and bounded automatic optimization are later phases and are reported as unsupported until implemented.
+Glamour is a local-first visual compiler and debugging workspace for coding agents. It renders an existing web implementation in pinned Playwright Chromium, compares it to one or more references, attributes visual residuals to DOM/SVG/Canvas objects, tests temporary changes, and exports browser-validated vector geometry. Glamour does not generate application source code.
 
 ## Requirements
 
-- Node.js 22+
-- pnpm 9.15.9
-- Chromium installed with Playwright (`pnpm exec playwright install chromium`)
+- Node.js 22+, pnpm 9.15.9, and Playwright Chromium.
+- Python 3.12+ and `uv` for geometry extraction.
 
 ## Install and verify
 
 ```sh
 pnpm install
 pnpm exec playwright install chromium
+uv sync --project python/replica_cv --group dev
 pnpm format:check
 pnpm lint
 pnpm typecheck
@@ -22,25 +20,69 @@ pnpm test
 pnpm build
 ```
 
+`pnpm format`, `pnpm lint`, and `pnpm test` include Ruff formatting/lint and pytest for the Python worker.
+
+Projects and immutable run artifacts are stored in `.glamour/` under the current directory. Set `GLAMOUR_HOME` to choose another store. Reference coordinates are CSS viewport pixels; device scale factor remains separate. A viewport PNG must have bitmap dimensions equal to viewport × DPR. Full-page screenshots are retained as structural data; the pinned browser compare currently renders viewport captures.
+
+## Reference input
+
+The minimum input is a lossless PNG plus exact viewport and DPR. For multi-state and responsive work, use a bundle directory with `manifest.json` and paths relative to it:
+
+```json
+{
+  "schemaVersion": "1",
+  "name": "shop",
+  "screenshots": [
+    {
+      "referenceId": "desktop",
+      "path": "screenshots/desktop.png",
+      "viewport": { "width": 1440, "height": 900, "deviceScaleFactor": 1 },
+      "familyId": "home"
+    },
+    {
+      "referenceId": "mobile",
+      "path": "screenshots/mobile.png",
+      "viewport": { "width": 390, "height": 844, "deviceScaleFactor": 1 },
+      "familyId": "home"
+    }
+  ],
+  "assets": [],
+  "fonts": [],
+  "textBlocks": [],
+  "scene": [],
+  "layout": [],
+  "typography": [],
+  "colors": [],
+  "geometry": [],
+  "interactions": [],
+  "responsiveMappings": [],
+  "chartData": [],
+  "crops": [],
+  "uncertainties": []
+}
+```
+
+Bundle fields retain provenance (`exact`, `provided`, `measured`, `derived`, `estimated`, `unknown`) and confidence. Explicit facts are surfaced by `analyze`; measured pixel palette and captured browser geometry are distinguished from supplied facts. Multiple references are rendered independently. Responsive changes are observations; breakpoint behavior remains a hypothesis unless supplied explicitly. Crops, assets, font metadata, text blocks, layout relations, scene graph, states, interactions, geometry, and chart data are preserved in the versioned Reference IR.
+
 ## CLI
 
 ```sh
-pnpm --filter @glamour/cli dev -- init \
-  --reference ./reference.png \
-  --url http://localhost:3000 \
-  --viewport 1440x900 \
-  --name homepage
-
-pnpm --filter @glamour/cli dev -- compare <project-id>
-pnpm --filter @glamour/cli dev -- inspect <project-id> region-1
-pnpm --filter @glamour/cli dev -- finalize <project-id>
+glamour init --reference ./reference.png --url http://localhost:3000 --viewport 1440x900 --dpr 1
+glamour init --bundle ./reference --url http://localhost:3000 --repository-root . --framework vite --token color.brand=#1a73e8
+glamour analyze <project-id>
+glamour compare <project-id> [--reference desktop]
+glamour inspect <project-id> <region-id> [--reference desktop]
+glamour override <project-id> --selector '#hero' --style 'left=20px' --region region-1
+glamour optimize <project-id> --selector '#hero' --property translateX --min -8 --max 0 --step 1 --region region-1
+glamour extract <project-id> <region-id> --format svg --mode open
+glamour finalize <project-id>
 ```
 
-Projects and immutable run outputs are written beneath `.glamour/` in the current working directory. Set `GLAMOUR_HOME` to use a different artifact root. Coordinates are CSS viewport pixels; DPR is stored separately. The input screenshot dimensions must match viewport × DPR.
+The CLI and MCP server call the same core APIs. `compare` without a reference runs every viewport/state reference. Overrides are transient and never edit source. Optimizer search has a bounded evaluation and timeout budget.
 
 ## MCP server
 
-Build the workspace and register the server in an MCP client:
+Build with `pnpm build` and register `apps/mcp-server/dist/index.js` as an stdio MCP server. Example:
 
 ```json
 {
@@ -48,20 +90,36 @@ Build the workspace and register the server in an MCP client:
     "glamour": {
       "command": "node",
       "args": ["/absolute/path/to/glamour/apps/mcp-server/dist/index.js"],
-      "env": { "GLAMOUR_HOME": "/path/to/your/project" }
+      "env": { "GLAMOUR_HOME": "/path/to/project" }
     }
   }
 }
 ```
 
-Available tools: `visual.create_project`, `visual.analyze_reference`, `visual.compare`, `visual.inspect`, `visual.test_overrides`, and `visual.finalize`. `visual.extract_geometry` and `visual.optimize` are reserved contracts and currently return explicit not-implemented errors.
+Tools: `visual.create_project`, `visual.analyze_reference`, `visual.compare`, `visual.inspect`, `visual.extract_geometry`, `visual.test_overrides`, `visual.optimize`, `visual.finalize`. Resources expose project manifest, Reference IR, latest Target IR, run diff/region, artifacts, and final report under `visual://project/...`. Responses include `schemaVersion: "1"`; larger images and vector output are referenced as resources/artifacts.
 
-## Workflow
+## Compare loop
 
-1. Create a project with a screenshot, URL, and exact viewport/DPR.
-2. Run `visual.compare` or `glamour compare` to render the page and get ranked regions plus a DOM snapshot.
-3. Inspect a region and use its ranked selectors and computed styles to form a candidate correction.
-4. Run `visual.test_overrides` to measure the CSS change in memory.
-5. Apply a confirmed correction in the source app, compare again, and finalize per viewport.
+1. Create a project from a screenshot or prepared bundle.
+2. Compare one or all references in deterministic Chromium (viewport/DPR, locale, timezone, reduced motion, animation suppression, font readiness, optional selector/predicate readiness, and masked selectors are recorded).
+3. Inspect ranked local regions, measured deltas, candidate DOM nodes, SVG metadata, or Canvas draw calls.
+4. Test a temporary CSS/SVG override, then run bounded optimization for supported CSS parameters.
+5. Apply a verified source change in the application and repeat. Finalize reports per reference and mismatch family.
 
-Every persisted project and result uses `schemaVersion: "1"`. Reference screenshots remain unchanged and are SHA-256 recorded in the manifest.
+Metrics are lower-is-better normalized residuals, not a claim of percent-identical pixels. Chromium version, input SHA-256, target URL, viewport/DPR, artifacts, and warnings are recorded per run. `networkidle` is the default readiness strategy; applications with persistent connections should choose `load` or `domcontentloaded` and provide `readySelector`/predicate. Arbitrary time, randomness, server data, carousels, and external dependencies cannot be frozen automatically; supply stable fixtures/state where needed.
+
+## Geometry and Canvas
+
+`visual.extract_geometry` invokes the internal OpenCV/NumPy/scikit-image worker through `uv`, emits SVG (or a Path2D string), and validates its browser render against the source crop. Open strokes are skeletonized and fitted as cubic curves; closed regions are traced as contours. Extraction is an approximate fallback: original vector assets or chart data should take precedence. Warnings and fit/validation loss are returned. Canvas instrumentation is injected before page scripts and records drawing commands, canvas selector, draw ID, transform, paint state, and approximate painted bounds. Clip/state-stack effects and source file/line mapping are not guaranteed; WebGL, video, and 3D are unsupported.
+
+## Limitations and safety
+
+- No VLM/OCR is required or used for core measurements. Ambiguous semantic identity remains uncertain.
+- Image attribution and responsive identity matching are evidence-ranked; they do not prove author intent.
+- Pixel rasterization can vary with OS, installed fonts, browser build, and external data. CI goldens therefore use a pinned runner/browser.
+- Readiness predicates are JavaScript expressions evaluated in the target page. Only use trusted project configurations.
+- Semantic HTML and accessibility remain implementation requirements; pixel fidelity does not justify screenshot-collage markup.
+
+## Development conventions
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for Conventional Commits, formatting, lint, TypeScript, Python, tests, and CI requirements.

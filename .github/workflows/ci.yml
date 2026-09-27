@@ -27,6 +27,12 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @glamour/core exec playwright install --with-deps chromium
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: python/replica_cv/uv.lock
+          python-version: '3.12'
+      - run: uv sync --project python/replica_cv --group dev --frozen
       - run: pnpm format:check
       - run: pnpm lint
       - run: pnpm typecheck
