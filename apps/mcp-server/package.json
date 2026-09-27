@@ -1,0 +1,20 @@
+{
+  "name": "@glamour/mcp-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "@glamour/core": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.17.5",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "tsx": "^4.20.6"
+  }
+}
