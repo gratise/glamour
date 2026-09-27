@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -65,6 +66,7 @@ export interface ProjectManifest {
     buildCommand?: string;
     designTokens?: Record<string, string>;
   };
+
   targetUrl: string;
   viewport: Viewport;
 }
@@ -196,6 +198,31 @@ export interface CanvasDrawCall {
   lineCap: string;
   lineJoin: string;
   sourceRef?: { file?: string; line?: number; column?: number };
+}
+
+let browserInstallAttempted = false;
+
+async function launchBrowser(): Promise<Browser> {
+  if (!existsSync(chromium.executablePath()) && !browserInstallAttempted) {
+    browserInstallAttempted = true;
+    const playwrightEntry = fileURLToPath(import.meta.resolve('playwright'));
+    const cli = path.join(path.dirname(playwrightEntry), 'cli.js');
+    process.stderr.write('Glamour is installing its pinned Chromium browser (one-time setup).\n');
+    const result = spawnSync(process.execPath, [cli, 'install', 'chromium'], {
+      stdio: 'inherit',
+      env: process.env,
+      timeout: 300_000,
+    });
+    if (result.error || result.status !== 0 || !existsSync(chromium.executablePath())) {
+      browserInstallAttempted = false;
+      const details = result.error?.message ?? `installer exited with status ${result.status}`;
+      throw new Error(
+        `Glamour could not install Chromium automatically (${details}). ` +
+          'Check network access and retry the visual tool.',
+      );
+    }
+  }
+  return chromium.launch({ headless: true });
 }
 
 const root = process.env.GLAMOUR_HOME ?? process.cwd();
@@ -701,7 +728,7 @@ async function captureTarget(
 }> {
   let browser: Browser | undefined;
   try {
-    browser = await chromium.launch({ headless: true });
+    browser = await launchBrowser();
     const context = await browser.newContext({
       viewport: { width: viewport.width, height: viewport.height },
       deviceScaleFactor: viewport.deviceScaleFactor,
@@ -2169,7 +2196,7 @@ export async function testOverrides(input: {
     : referenceBytes;
   let browser: Browser | undefined;
   try {
-    browser = await chromium.launch({ headless: true });
+    browser = await launchBrowser();
     const context = await browser.newContext({
       viewport: { width: reference.viewport.width, height: reference.viewport.height },
       deviceScaleFactor: reference.viewport.deviceScaleFactor,
@@ -2416,20 +2443,21 @@ async function runCvWorker(payload: Record<string, unknown>): Promise<Record<str
     process.env.GLAMOUR_CV_PROJECT_PATH ??
     path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../python/glamour_cv');
   const workerScript = path.join(workerProject, 'src/glamour_cv/worker.py');
+  const pythonExecutable = process.env.GLAMOUR_PYTHON;
+  const command = pythonExecutable ?? process.env.GLAMOUR_UV ?? 'uv';
+  const args = pythonExecutable
+    ? [workerScript]
+    : ['run', '--no-dev', '--project', workerProject, 'python', workerScript];
   return new Promise((resolve, reject) => {
-    const worker = spawn(
-      process.env.GLAMOUR_UV ?? 'uv',
-      ['run', '--project', workerProject, 'python', workerScript],
-      { stdio: ['pipe', 'pipe', 'pipe'] },
-    );
+    const worker = spawn(command, args, { stdio: ['pipe', 'pipe', 'pipe'] });
     let stdout = '';
     let stderr = '';
     let timedOut = false;
     const timeout = setTimeout(() => {
       timedOut = true;
       worker.kill('SIGTERM');
-      reject(new Error('Geometry extraction exceeded its 60 second worker timeout.'));
-    }, 60_000);
+      reject(new Error('Geometry extraction exceeded its 180 second worker timeout.'));
+    }, 180_000);
     timeout.unref();
     worker.stdout.setEncoding('utf8').on('data', (chunk: string) => {
       stdout += chunk;
@@ -2519,7 +2547,7 @@ export async function extractGeometry(input: {
   let browser: Browser | undefined;
   let browserValidationLoss: number;
   try {
-    browser = await chromium.launch({ headless: true });
+    browser = await launchBrowser();
     const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 1 });
     const page = await context.newPage();
     const background = String(cv.backgroundColor ?? '#ffffff');
@@ -2635,7 +2663,7 @@ export async function optimize(input: {
   const startedAt = Date.now();
   let browser: Browser | undefined;
   try {
-    browser = await chromium.launch({ headless: true });
+    browser = await launchBrowser();
     const context = await browser.newContext({
       viewport: { width: reference.viewport.width, height: reference.viewport.height },
       deviceScaleFactor: reference.viewport.deviceScaleFactor,

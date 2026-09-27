@@ -7,10 +7,12 @@ description: Build or revise production website code from screenshots, design ex
 
 You are the coding agent and author of the application. Glamour supplies structured reference facts, deterministic browser rendering, visual diagnostics, and verified experiments; it does not write the target application's source code. Make real, semantic, responsive changes in the target repository, then use Glamour to measure the result.
 
+When this plugin is installed, its Glamour MCP tools are part of your environment. Do not ask the user to clone the Glamour repository, install its CLI, or configure an MCP server manually. Work in the repository the user already opened. If the runtime is still being prepared, retry after the reported one-time download; if setup fails, report the exact setup error and continue the implementation without claiming visual verification.
+
 ## Start from the available evidence
 
 - Inspect the target repository, its local instructions, framework, existing routes, design tokens, and dev/build commands before editing. Preserve its conventions and reuse its components and assets.
-- Inspect every provided reference image and bundle. Use original SVG/raster assets, fonts, exact copy, chart data, and interaction metadata when available; do not redraw information that already exists in source assets.
+- Inspect every reference image attached to the request and every bundle in the current project. Use original SVG/raster assets, fonts, exact copy, chart data, and interaction metadata when available; do not redraw information that already exists in source assets. A single screenshot is enough to begin; do not require the user to prepare a bundle.
 - Do not ask the user to manually measure details that the image, repository, or Glamour can reveal. Derive screenshot pixel dimensions directly. If only a screenshot is provided, start with that and state only genuinely unknowable assumptions (such as an absent interaction state); do not block the implementation on a richer bundle.
 - For a screenshot-only reference, use its bitmap width and height as the CSS viewport only when no capture metadata exists and record that assumption. Use DPR 1 only as an explicit fallback, never infer the original browser/device from pixels.
 - Keep evidence and interpretation separate. Treat measured boxes/pixels and supplied assets as facts; label inferred component semantics and responsive rules as hypotheses.

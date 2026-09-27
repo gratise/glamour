@@ -4,6 +4,7 @@ __pycache__/
 *.py[cod]
 dist/
 coverage/
+glamour-runtime-*.tar.gz
 .ruff_cache/
 .pytest_cache/
 .glamour/
