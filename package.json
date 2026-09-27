@@ -13,6 +13,7 @@
     "format:check": "prettier --check . && uv run --project python/glamour_cv ruff format --check",
     "typecheck": "pnpm -r build && pnpm -r typecheck",
     "test": "vitest run && (cd python/glamour_cv && uv run --project . pytest)",
+    "validate:agent": "node scripts/validate-agent-integration.mjs",
     "test:watch": "vitest",
     "prepare": "husky"
   },

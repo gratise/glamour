@@ -35,6 +35,7 @@ jobs:
       - run: uv sync --project python/glamour_cv --group dev --frozen
       - run: pnpm format:check
       - run: pnpm lint
+      - run: pnpm validate:agent
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build

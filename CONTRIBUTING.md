@@ -14,6 +14,7 @@ Run the same quality gates as CI:
 pnpm format
 pnpm format:check
 pnpm lint
+pnpm validate:agent
 pnpm typecheck
 pnpm test
 pnpm build
@@ -22,6 +23,8 @@ pnpm build
 The workspace format, lint, and test scripts include Ruff and pytest in addition to Prettier, ESLint, and Vitest.
 
 Add deterministic fixtures for behavior changes. Browser goldens and geometry integration checks use Playwright Chromium; do not compare screenshots captured from different OS/browser/font stacks as if they were equivalent. Python unit tests should keep generated images in pytest's temporary directory.
+
+The agent-integration validation checks that the Codex plugin, repository marketplace entry, and website-building skill remain installable and discoverable.
 
 ## Architecture
 

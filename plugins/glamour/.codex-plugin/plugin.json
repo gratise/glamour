@@ -1,0 +1,18 @@
+{
+  "name": "glamour",
+  "version": "0.1.0",
+  "description": "Help coding agents build and verify high-fidelity websites from visual references.",
+  "author": {
+    "name": "Gratise"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Glamour",
+    "shortDescription": "Build and verify complex websites from references.",
+    "longDescription": "Glamour guides a coding agent through implementing a website in source code and iterating against deterministic browser measurements, responsive references, and geometry evidence.",
+    "developerName": "Gratise",
+    "category": "Productivity",
+    "capabilities": ["Website implementation", "Visual verification"],
+    "defaultPrompt": "Build this website from the reference and verify it with Glamour."
+  }
+}

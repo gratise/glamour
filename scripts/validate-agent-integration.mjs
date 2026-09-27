@@ -1,0 +1,37 @@
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+import { stdout } from 'node:process';
+import { fileURLToPath } from 'node:url';
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const pluginPath = path.join(root, 'plugins/glamour');
+const manifest = JSON.parse(
+  await readFile(path.join(pluginPath, '.codex-plugin/plugin.json'), 'utf8'),
+);
+const marketplace = JSON.parse(
+  await readFile(path.join(root, '.agents/plugins/marketplace.json'), 'utf8'),
+);
+const entry = marketplace.plugins.find((candidate) => candidate.name === manifest.name);
+assert(entry, 'The Glamour plugin must be discoverable from the repository marketplace.');
+assert.equal(entry.source.source, 'local');
+assert.equal(
+  path.resolve(root, entry.source.path),
+  pluginPath,
+  'The marketplace entry must resolve to the plugin directory.',
+);
+assert.equal(entry.policy.installation, 'AVAILABLE');
+assert.equal(entry.policy.authentication, 'ON_INSTALL');
+assert.equal(manifest.skills, './skills/');
+
+const skillPath = path.join(pluginPath, 'skills/glamour-site-builder/SKILL.md');
+const skill = await readFile(skillPath, 'utf8');
+const frontmatter = skill.match(/^---\n([\s\S]*?)\n---\n/);
+assert(frontmatter, 'The agent skill must have YAML frontmatter.');
+assert.match(frontmatter[1], /^name:\s*glamour-site-builder\s*$/m);
+assert.match(frontmatter[1], /^description:\s*\S/m);
+assert.match(skill, /You are the coding agent and author of the application/);
+assert.match(skill, /Run the visual correction loop/);
+assert.match(skill, /MCP when connected, or through the `glamour` CLI/);
+
+stdout.write('Glamour coding-agent integration is valid.\n');
