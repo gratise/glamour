@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   quality:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
       - uses: pnpm/action-setup@v6
@@ -30,9 +30,9 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-          cache-dependency-glob: python/replica_cv/uv.lock
+          cache-dependency-glob: python/glamour_cv/uv.lock
           python-version: '3.12'
-      - run: uv sync --project python/replica_cv --group dev --frozen
+      - run: uv sync --project python/glamour_cv --group dev --frozen
       - run: pnpm format:check
       - run: pnpm lint
       - run: pnpm typecheck

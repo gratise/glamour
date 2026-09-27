@@ -13,6 +13,7 @@ import {
   viewportSchema,
   type BrowserSettings,
   type ReferenceBundle,
+  type ReferenceAction,
   type ReferenceScreenshot,
   type Viewport,
 } from './schemas.js';
@@ -20,10 +21,30 @@ import {
 export {
   browserSettingsSchema,
   referenceBundleSchema,
+  referenceActionSchema,
   schemaVersion,
   viewportSchema,
+  assetSchema,
+  bboxSchema,
+  colorSchema,
+  chartDataSchema,
+  cropSchema,
+  effectSchema,
+  fontSchema,
+  gradientSchema,
+  geometryArtifactSchema,
+  interactionSchema,
+  layoutRelationSchema,
+  provenanceSchema,
+  referenceScreenshotSchema,
+  rawMeasurementSchema,
+  responsiveMappingSchema,
+  sceneNodeSchema,
+  semanticInterpretationSchema,
+  textBlockSchema,
+  uncertaintySchema,
 } from './schemas.js';
-export type { ReferenceBundle, ReferenceScreenshot, Viewport } from './schemas.js';
+export type { ReferenceAction, ReferenceBundle, ReferenceScreenshot, Viewport } from './schemas.js';
 
 export interface ProjectManifest {
   schemaVersion: typeof schemaVersion;
@@ -106,6 +127,7 @@ export interface DiffRegion {
     | 'spacing'
     | 'typography'
     | 'paint'
+    | 'border'
     | 'border-radius'
     | 'shadow'
     | 'wrong-asset'
@@ -393,6 +415,8 @@ export async function analyzeReference(projectId: string): Promise<{
     geometryArtifactCount: number;
     interactionCount: number;
     chartDataCount: number;
+    gradientCount: number;
+    effectCount: number;
     complexRegions: number;
   };
   palette: Array<{ color: string; share: number; provenance: 'measured'; confidence: number }>;
@@ -404,6 +428,14 @@ export async function analyzeReference(projectId: string): Promise<{
     confidence?: number;
   }>;
   uncertainties: Array<{ id: string; message: string; provenance: string }>;
+  fullPageCaptures: Array<{
+    referenceId: string;
+    viewport: Viewport;
+    scrollOffset: { x: number; y: number };
+    bitmap: { width: number; height: number };
+    contentSizeCss: { width: number; height: number };
+    provenance: 'measured';
+  }>;
 }> {
   const manifest = await getProject(projectId);
   const bundle = manifest.referenceBundle;
@@ -444,7 +476,7 @@ export async function analyzeReference(projectId: string): Promise<{
         category: 'text',
         id: item.id,
         value: item,
-        provenance: item.provenance,
+        provenance: item.provenance!,
         ...(item.confidence === undefined ? {} : { confidence: item.confidence }),
       })),
     ...bundle.assets
@@ -467,9 +499,43 @@ export async function analyzeReference(projectId: string): Promise<{
         category: 'scene-node',
         id: node.id,
         value: node,
-        provenance: node.provenance,
+        provenance: node.provenance!,
         ...(node.confidence === undefined ? {} : { confidence: node.confidence }),
       })),
+    ...bundle.scene.flatMap((node) =>
+      node.measurement?.bbox &&
+      (node.measurement.provenance === 'exact' ||
+        node.measurement.provenance === 'provided' ||
+        (node.measurement.provenance === 'measured' && (node.measurement.confidence ?? 0) >= 0.8))
+        ? [
+            {
+              category: 'measurement',
+              id: node.id,
+              value: node.measurement,
+              provenance: node.measurement.provenance!,
+              ...(node.measurement.confidence === undefined
+                ? {}
+                : { confidence: node.measurement.confidence }),
+            },
+          ]
+        : [],
+    ),
+    ...bundle.scene.flatMap((node) =>
+      node.interpretation &&
+      (node.interpretation.provenance === 'provided' || node.interpretation.provenance === 'exact')
+        ? [
+            {
+              category: 'interpretation',
+              id: node.id,
+              value: node.interpretation,
+              provenance: node.interpretation.provenance!,
+              ...(node.interpretation.confidence === undefined
+                ? {}
+                : { confidence: node.interpretation.confidence }),
+            },
+          ]
+        : [],
+    ),
   ];
   const uncertainties = [
     ...bundle.uncertainties.map((item, index) => ({
@@ -485,6 +551,24 @@ export async function analyzeReference(projectId: string): Promise<{
         provenance: 'unknown',
       })),
   ];
+  const fullPageCaptures = await Promise.all(
+    manifest.references
+      .filter((reference) => reference.captureType === 'full-page')
+      .map(async (reference) => {
+        const image = decodePng(await normalizeRaster(await readFile(reference.path)));
+        return {
+          referenceId: reference.referenceId,
+          viewport: reference.viewport,
+          scrollOffset: { x: reference.scrollX, y: reference.scrollY },
+          bitmap: { width: image.width, height: image.height },
+          contentSizeCss: {
+            width: image.width / reference.viewport.deviceScaleFactor,
+            height: image.height / reference.viewport.deviceScaleFactor,
+          },
+          provenance: 'measured' as const,
+        };
+      }),
+  );
   return {
     schemaVersion,
     projectId,
@@ -505,11 +589,14 @@ export async function analyzeReference(projectId: string): Promise<{
       geometryArtifactCount: bundle.geometry.length,
       interactionCount: bundle.interactions.length,
       chartDataCount: bundle.chartData.length,
+      gradientCount: bundle.gradients.length,
+      effectCount: bundle.effects.length,
       complexRegions: bundle.crops.length,
     },
     palette,
     highConfidenceFacts: highConfidenceFacts.slice(0, 30),
     uncertainties: uncertainties.slice(0, 30),
+    fullPageCaptures,
   };
 }
 
@@ -549,10 +636,48 @@ export async function compareProjectAll(projectId: string): Promise<{
   return { schemaVersion, projectId, results, skippedReferences };
 }
 
+async function applyReferenceActions(
+  page: Page,
+  actions: ReferenceAction[],
+  timeoutMs: number,
+): Promise<void> {
+  for (const action of actions) {
+    const locator = page.locator(action.selector).first();
+    const timeout = timeoutMs;
+    switch (action.type) {
+      case 'click':
+        await locator.click({ timeout });
+        break;
+      case 'hover':
+        await locator.hover({ timeout });
+        break;
+      case 'focus':
+        await locator.focus({ timeout });
+        break;
+      case 'fill':
+        await locator.fill(action.value, { timeout });
+        break;
+      case 'press':
+        await locator.press(action.value, { timeout });
+        break;
+      case 'selectOption':
+        await locator.selectOption(action.value, { timeout });
+        break;
+      case 'check':
+        await locator.check({ timeout });
+        break;
+      case 'uncheck':
+        await locator.uncheck({ timeout });
+        break;
+    }
+  }
+}
+
 async function captureTarget(
   manifest: ProjectManifest,
   viewport: Viewport = manifest.viewport,
   scroll: { x: number; y: number } = { x: 0, y: 0 },
+  reference?: ReferenceScreenshot,
 ): Promise<{
   png: Buffer;
   nodes: DomNode[];
@@ -835,10 +960,12 @@ async function captureTarget(
         };
       }
     }, manifest.browserSettings);
-    await page.goto(manifest.targetUrl, {
+    await page.goto(reference?.targetUrl ?? manifest.targetUrl, {
       waitUntil: manifest.browserSettings.waitUntil,
       timeout: manifest.browserSettings.timeoutMs,
     });
+    if (reference)
+      await applyReferenceActions(page, reference.actions, manifest.browserSettings.timeoutMs);
     if (scroll.x || scroll.y) await page.evaluate(({ x, y }) => window.scrollTo(x, y), scroll);
     if (manifest.browserSettings.readySelector) {
       await page
@@ -876,11 +1003,6 @@ async function captureTarget(
     const nodes = await page.evaluate(() => {
       const elements = [...document.querySelectorAll('body *')].slice(0, 5000);
       const ids = new Map<Element, string>();
-      elements.forEach((element, index) => {
-        const id = `node-${index + 1}`;
-        ids.set(element, id);
-        element.setAttribute('data-glamour-runtime-id', id);
-      });
       const selectorFor = (element: Element): string => {
         if (element.id) return `#${CSS.escape(element.id)}`;
         const parts: string[] = [];
@@ -899,6 +1021,15 @@ async function captureTarget(
         }
         return parts.join(' > ') || 'body';
       };
+      const stableId = (element: Element): string => {
+        const identity = `${element.tagName.toLowerCase()}|${selectorFor(element)}`;
+        return `node-${encodeURIComponent(identity)}`;
+      };
+      elements.forEach((element) => {
+        const id = stableId(element);
+        ids.set(element, id);
+        element.setAttribute('data-glamour-runtime-id', id);
+      });
       return elements.map((element, index) => {
         const rect = element.getBoundingClientRect();
         const style = getComputedStyle(element);
@@ -912,7 +1043,7 @@ async function captureTarget(
           svgElement?.querySelector('path') ??
           (svgElement?.tagName.toLowerCase() === 'path' ? svgElement : null);
         return {
-          id: `node-${index + 1}`,
+          id: ids.get(element)!,
           selector: selectorFor(element),
           tagName: element.tagName.toLowerCase(),
           bbox: [rect.x, rect.y, rect.width, rect.height] as [number, number, number, number],
@@ -1343,6 +1474,12 @@ function buildRegions(
           ((nearWidth * nearHeight) / Math.max(1, bbox[2] * bbox[3])) * 0.45,
         );
         const evidence: string[] = [];
+        const nodeRight = x + w;
+        const nodeBottom = y + h;
+        const gapX = Math.max(0, bboxCss[0] - nodeRight, x - (bboxCss[0] + bboxCss[2]));
+        const gapY = Math.max(0, bboxCss[1] - nodeBottom, y - (bboxCss[1] + bboxCss[3]));
+        const edgeDistance = Math.hypot(gapX, gapY);
+        if (edgeDistance <= 10) evidence.push('edge-proximity');
         if (
           node.textRects.some(
             ([tx, ty, tw, th]) =>
@@ -1376,14 +1513,40 @@ function buildRegions(
           ? 0.2
           : 0) -
         (candidate.evidence.includes('text-overlap') ? 0.35 : 0);
+      const [rx, ry, rw, rh] = bboxCss;
+      const [nx, ny, nw, nh] = node?.bbox ?? [0, 0, 0, 0];
+      const edgeDistance = Math.hypot(
+        Math.max(0, rx - (nx + nw), nx - (rx + rw)),
+        Math.max(0, ry - (ny + nh), ny - (ry + rh)),
+      );
+      const edgeProximity = candidate.evidence.includes('edge-proximity')
+        ? Math.max(0, 1 - edgeDistance / 10)
+        : 0;
+      const zIndex = Number.parseInt(node?.zIndex ?? '', 10);
+      const stacking = Number.isFinite(zIndex) ? Math.tanh(zIndex / 10) * 0.05 : 0;
       return (
-        candidate.overlap * 0.6 +
-        precision * 0.3 +
+        candidate.overlap * 0.5 +
+        precision * 0.25 +
+        edgeProximity * 0.15 +
+        stacking +
         evidenceScore +
         (candidate.paintOrder / Math.max(nodes.length, 1)) * 0.02
       );
     }
     const topNode = nodes.find((node) => node.id === candidates[0]?.nodeId);
+    const extendsBeyondNode = topNode
+      ? bboxCss[0] < topNode.bbox[0] - 1 ||
+        bboxCss[1] < topNode.bbox[1] - 1 ||
+        bboxCss[0] + bboxCss[2] > topNode.bbox[0] + topNode.bbox[2] + 1 ||
+        bboxCss[1] + bboxCss[3] > topNode.bbox[1] + topNode.bbox[3] + 1
+      : false;
+    const borderStrip = topNode
+      ? bboxCss[0] >= topNode.bbox[0] - 2 &&
+        bboxCss[1] >= topNode.bbox[1] - 2 &&
+        bboxCss[0] + bboxCss[2] <= topNode.bbox[0] + topNode.bbox[2] + 2 &&
+        bboxCss[1] + bboxCss[3] <= topNode.bbox[1] + topNode.bbox[3] + 2 &&
+        (bboxCss[2] < topNode.bbox[2] * 0.35 || bboxCss[3] < topNode.bbox[3] * 0.35)
+      : false;
     const classification: DiffRegion['classification'] =
       topNode?.tagName === 'canvas' || topNode?.svg
         ? 'geometry'
@@ -1391,17 +1554,23 @@ function buildRegions(
           ? 'wrong-asset'
           : candidates[0]?.evidence.includes('text-overlap')
             ? 'typography'
-            : topNode?.boxShadow !== 'none' && local.edge > local.color
+            : topNode?.boxShadow !== 'none' && topNode?.boxShadow !== '' && extendsBeyondNode
               ? 'shadow'
               : topNode?.borderRadius !== '0px' &&
                   topNode?.borderRadius !== '0px 0px 0px 0px' &&
                   local.edge > local.color
                 ? 'border-radius'
-                : local.edge > 0.08 && local.color < 0.08
-                  ? 'geometry'
-                  : local.color > 0.08
-                    ? 'paint'
-                    : 'unknown';
+                : topNode &&
+                    Number.parseFloat(topNode.border) > 0 &&
+                    (borderStrip ||
+                      (extendsBeyondNode === false &&
+                        component.pixels.length / Math.max(1, bboxCss[2] * bboxCss[3]) < 0.5))
+                  ? 'border'
+                  : local.edge > 0.08 && local.color < 0.08
+                    ? 'geometry'
+                    : local.color > 0.08
+                      ? 'paint'
+                      : 'unknown';
     regions.push({
       id: `region-${regions.length + 1}`,
       bbox: bboxCss,
@@ -1554,7 +1723,25 @@ function buildRegions(
       siblings.length > 1
     ) {
       region.classification = 'spacing';
+    } else if (parent && parent.padding.split(' ').some((value) => Number.parseFloat(value) > 0)) {
+      region.classification = 'spacing';
     }
+  }
+  for (const region of filtered) {
+    if (!region.candidates[0]) continue;
+    const node = nodes.find((item) => item.id === region.candidates[0]!.nodeId);
+    if (!node?.parentId) continue;
+    const parent = nodes.find((item) => item.id === node.parentId);
+    if (!parent || !parent.padding.split(' ').some((value) => Number.parseFloat(value) > 0))
+      continue;
+    const [x, y, width, height] = region.bbox;
+    const [nodeX, nodeY, nodeWidth, nodeHeight] = node.bbox;
+    const oldAndNewBounds =
+      x < nodeX - 1 &&
+      y < nodeY - 1 &&
+      x + width > nodeX + nodeWidth + 1 &&
+      y + height > nodeY + nodeHeight + 1;
+    if (oldAndNewBounds) region.classification = 'spacing';
   }
   filtered.forEach((region, index) => {
     region.id = `region-${index + 1}`;
@@ -1574,6 +1761,7 @@ export async function compareProject(
     manifest,
     referenceRecord.viewport,
     { x: referenceRecord.scrollX, y: referenceRecord.scrollY },
+    referenceRecord,
   );
   const metrics = comparePixels(reference, png);
   const regions = buildRegions(
@@ -1644,7 +1832,7 @@ export async function compareProject(
     createdAt: new Date().toISOString(),
     inputReferenceHash: referenceRecord.sha256,
     referenceId: referenceRecord.referenceId,
-    targetUrl: manifest.targetUrl,
+    targetUrl: referenceRecord.targetUrl ?? manifest.targetUrl,
     viewport: referenceRecord.viewport,
     browser: { name: 'chromium', version: chromiumVersion },
     readiness: result.readiness,
@@ -1828,10 +2016,11 @@ export async function testOverrides(input: {
     });
     const page = await context.newPage();
     await installDeterminism(page, manifest.browserSettings);
-    await page.goto(manifest.targetUrl, {
+    await page.goto(reference.targetUrl ?? manifest.targetUrl, {
       waitUntil: manifest.browserSettings.waitUntil,
       timeout: manifest.browserSettings.timeoutMs,
     });
+    await applyReferenceActions(page, reference.actions, manifest.browserSettings.timeoutMs);
     await waitUntilReady(page, manifest.browserSettings);
     await page.evaluate(async () => await document.fonts.ready);
     const screenshotOptions = clip ? { clip } : {};
@@ -1965,8 +2154,8 @@ async function waitUntilReady(page: Page, settings: BrowserSettings): Promise<vo
 async function runCvWorker(payload: Record<string, unknown>): Promise<Record<string, unknown>> {
   const workerProject =
     process.env.GLAMOUR_CV_PROJECT_PATH ??
-    path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../python/replica_cv');
-  const workerScript = path.join(workerProject, 'src/replica_cv/worker.py');
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../python/glamour_cv');
+  const workerScript = path.join(workerProject, 'src/glamour_cv/worker.py');
   return new Promise((resolve, reject) => {
     const worker = spawn(
       process.env.GLAMOUR_UV ?? 'uv',
@@ -2197,10 +2386,11 @@ export async function optimize(input: {
     });
     const page = await context.newPage();
     await installDeterminism(page, project.browserSettings);
-    await page.goto(project.targetUrl, {
+    await page.goto(reference.targetUrl ?? project.targetUrl, {
       waitUntil: project.browserSettings.waitUntil,
       timeout: project.browserSettings.timeoutMs,
     });
+    await applyReferenceActions(page, reference.actions, project.browserSettings.timeoutMs);
     await waitUntilReady(page, project.browserSettings);
     await page.evaluate(async () => await document.fonts.ready);
     const locator = page.locator(input.selector).first();
@@ -2315,6 +2505,7 @@ export async function finalizeProject(projectId: string): Promise<{
     suppliedMappings: ReferenceBundle['responsiveMappings'];
     observedNodeChanges: Array<{
       familyId: string;
+      identity?: string;
       selector: string;
       tagName: string;
       observations: Array<{
@@ -2380,7 +2571,7 @@ export async function finalizeProject(projectId: string): Promise<{
         geometry: count('geometry'),
         paint: count('paint'),
         typography: count('typography'),
-        effects: count('shadow') + count('border-radius'),
+        effects: count('shadow') + count('border-radius') + count('border'),
         unsupportedOrUncertain,
       };
     }),
@@ -2421,10 +2612,29 @@ export async function finalizeProject(projectId: string): Promise<{
           [],
       })),
     );
+    const suppliedMapping = project.referenceBundle.responsiveMappings.find(
+      (mapping) => mapping.familyId === familyId,
+    );
+    const suppliedNodes = suppliedMapping?.nodeMappings ?? [];
     const identities = new Map<string, (typeof observedNodeChanges)[number]['observations']>();
+    const labels = new Map<string, { identity?: string; selector: string; tagName: string }>();
     for (const { reference, nodes } of targetByReference) {
       for (const node of nodes) {
-        const key = `${node.selector}|${node.tagName}`;
+        const explicit = suppliedNodes.find(
+          (mapping) =>
+            mapping.referenceId === reference.referenceId &&
+            (mapping.nodeId === node.id || mapping.nodeId === node.selector),
+        );
+        const partOfExplicitIdentity = suppliedNodes.some(
+          (mapping) => mapping.nodeId === node.id || mapping.nodeId === node.selector,
+        );
+        if (suppliedNodes.length && partOfExplicitIdentity && !explicit) continue;
+        const key = explicit?.identity ?? `${node.selector}|${node.tagName}`;
+        labels.set(key, {
+          ...(explicit?.identity ? { identity: explicit.identity } : {}),
+          selector: node.selector,
+          tagName: node.tagName,
+        });
         const observations = identities.get(key) ?? [];
         observations.push({
           referenceId: reference.referenceId,
@@ -2435,13 +2645,48 @@ export async function finalizeProject(projectId: string): Promise<{
         identities.set(key, observations);
       }
     }
+    for (const identity of [...new Set(suppliedNodes.map((mapping) => mapping.identity))]) {
+      const identityMappings = suppliedNodes.filter((mapping) => mapping.identity === identity);
+      const representative = identityMappings[0]!;
+      const observations = identities.get(identity) ?? [];
+      for (const { reference, nodes } of targetByReference) {
+        if (observations.some((observation) => observation.referenceId === reference.referenceId))
+          continue;
+        const mapping = identityMappings.find((item) => item.referenceId === reference.referenceId);
+        const node = mapping?.nodeId
+          ? nodes.find((item) => item.id === mapping.nodeId || item.selector === mapping.nodeId)
+          : undefined;
+        observations.push({
+          referenceId: reference.referenceId,
+          viewport: reference.viewport,
+          bbox: node?.bbox ?? [0, 0, 0, 0],
+          visible: mapping?.visible ?? Boolean(node && node.display !== 'none'),
+        });
+        if (node)
+          labels.set(identity, {
+            identity,
+            selector: node.selector,
+            tagName: node.tagName,
+          });
+      }
+      identities.set(identity, observations);
+      labels.set(identity, {
+        identity,
+        selector: labels.get(identity)?.selector ?? representative.nodeId ?? identity,
+        tagName: labels.get(identity)?.tagName ?? 'unknown',
+      });
+    }
     for (const [key, observations] of identities) {
       if (observations.length < 2) continue;
-      const [selector, tagName] = key.split('|');
+      const label = labels.get(key) ?? {
+        selector: key.split('|')[0]!,
+        tagName: key.split('|')[1]!,
+      };
       observedNodeChanges.push({
         familyId,
-        selector: selector!,
-        tagName: tagName!,
+        ...(label.identity ? { identity: label.identity } : {}),
+        selector: label.selector,
+        tagName: label.tagName,
         observations: observations.sort((a, b) => a.viewport.width - b.viewport.width),
       });
       const ordered = observations.sort((a, b) => a.viewport.width - b.viewport.width);
@@ -2451,7 +2696,7 @@ export async function finalizeProject(projectId: string): Promise<{
         if (narrow.visible === wide.visible) continue;
         breakpointHypotheses.push({
           familyId,
-          selector: selector!,
+          selector: label.selector,
           betweenWidths: [narrow.viewport.width, wide.viewport.width],
           evidence: [
             `${narrow.referenceId}: ${narrow.visible ? 'visible' : 'absent'}`,
