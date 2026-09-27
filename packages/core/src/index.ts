@@ -112,6 +112,14 @@ export interface DomNode {
     objectFit: string;
     objectPosition: string;
   };
+  video?: {
+    currentTime: number;
+    duration: number;
+    videoWidth: number;
+    videoHeight: number;
+    paused: boolean;
+    readyState: number;
+  };
   text: string;
 }
 
@@ -174,6 +182,10 @@ export interface CanvasDrawCall {
   canvasId: string;
   selector: string;
   method: string;
+  api?: 'canvas2d' | 'webgl' | 'webgl2';
+  primitive?: string;
+  vertexCount?: number;
+  instanceCount?: number;
   commands: Array<{ method: string; args: unknown[] }>;
   bbox: [number, number, number, number];
   transform: number[];
@@ -684,6 +696,8 @@ async function captureTarget(
   canvasDrawCalls: CanvasDrawCall[];
   chromiumVersion: string;
   unloadedImages: string[];
+  videoWarnings: string[];
+  pageErrors: string[];
 }> {
   let browser: Browser | undefined;
   try {
@@ -697,6 +711,8 @@ async function captureTarget(
       reducedMotion: 'reduce',
     });
     const page = await context.newPage();
+    const pageErrors: string[] = [];
+    page.on('pageerror', (error) => pageErrors.push(error.message));
     await page.addInitScript((settings) => {
       const NativeDate = Date;
       const fixedEpoch = new NativeDate(settings.fixedTime).valueOf();
@@ -938,6 +954,7 @@ async function captureTarget(
               canvasId,
               selector: selector(this.canvas),
               method,
+              api: 'canvas2d',
               commands: priorCommands,
               bbox: box,
               transform: [
@@ -959,6 +976,113 @@ async function captureTarget(
           return (original as (...args: unknown[]) => unknown).apply(this, args);
         };
       }
+      const webglDrawMethods = [
+        'drawArrays',
+        'drawElements',
+        'drawArraysInstanced',
+        'drawElementsInstanced',
+      ];
+      const webglPrimitiveNames = new Map<number, string>([
+        [0x0000, 'points'],
+        [0x0001, 'lines'],
+        [0x0002, 'line-loop'],
+        [0x0003, 'line-strip'],
+        [0x0004, 'triangles'],
+        [0x0005, 'triangle-strip'],
+        [0x0006, 'triangle-fan'],
+      ]);
+      const webglViewports = new WeakMap<object, [number, number, number, number]>();
+      const installWebGlTracing = (
+        prototype: Record<string, unknown> | undefined,
+        api: 'webgl' | 'webgl2',
+      ) => {
+        if (!prototype || installedWebGlPrototypes.has(prototype)) return;
+        installedWebGlPrototypes.add(prototype);
+        for (const method of webglDrawMethods) {
+          const original = prototype[method];
+          if (typeof original !== 'function') continue;
+          prototype[method] = function (this: WebGLRenderingContext, ...args: number[]) {
+            const canvas = this.canvas;
+            if (!(canvas instanceof HTMLCanvasElement))
+              return (original as (...values: number[]) => unknown).apply(this, args);
+            let canvasId = canvasIds.get(canvas);
+            if (!canvasId) {
+              canvasId = `canvas-${++canvasSequence}`;
+              canvasIds.set(canvas, canvasId);
+            }
+            const rect = canvas.getBoundingClientRect();
+            const sx = rect.width / canvas.width;
+            const sy = rect.height / canvas.height;
+            const viewport = webglViewports.get(this) ?? [0, 0, canvas.width, canvas.height];
+            const [x, y, width, height] = viewport;
+            const vertexCount =
+              method === 'drawArrays' || method === 'drawArraysInstanced'
+                ? (args[2] ?? 0)
+                : (args[1] ?? 0);
+            const instanceCount =
+              method === 'drawArraysInstanced'
+                ? (args[3] ?? 1)
+                : method === 'drawElementsInstanced'
+                  ? (args[4] ?? 1)
+                  : 1;
+            calls.push({
+              drawId: `draw-${calls.length + 1}`,
+              canvasId,
+              selector: selector(canvas),
+              method,
+              api,
+              primitive: webglPrimitiveNames.get(args[0] ?? -1) ?? `mode-${args[0]}`,
+              vertexCount,
+              instanceCount,
+              commands: [{ method, args: [...args] }],
+              bbox: [
+                rect.x + x * sx,
+                rect.y + (canvas.height - y - height) * sy,
+                width * sx,
+                height * sy,
+              ],
+              transform: [1, 0, 0, 1, 0, 0],
+              fillStyle: '',
+              strokeStyle: '',
+              lineWidth: 1,
+              globalAlpha: 1,
+              lineCap: 'butt',
+              lineJoin: 'miter',
+            });
+            return (original as (...values: number[]) => unknown).apply(this, args);
+          };
+        }
+        const nativeViewport = prototype.viewport;
+        if (typeof nativeViewport === 'function')
+          prototype.viewport = function (this: WebGLRenderingContext, ...args: number[]) {
+            webglViewports.set(this, [args[0] ?? 0, args[1] ?? 0, args[2] ?? 0, args[3] ?? 0]);
+            return (nativeViewport as (...values: number[]) => unknown).apply(this, args);
+          };
+      };
+      const installedWebGlPrototypes = new WeakSet<object>();
+      const nativeGetContext = HTMLCanvasElement.prototype.getContext as (
+        this: HTMLCanvasElement,
+        type: string,
+        ...args: unknown[]
+      ) => RenderingContext | null;
+      HTMLCanvasElement.prototype.getContext = function (
+        this: HTMLCanvasElement,
+        type: string,
+        ...args: unknown[]
+      ) {
+        const context = nativeGetContext.call(this, type, ...args);
+        if (context && (type === 'webgl' || type === 'experimental-webgl')) {
+          const webgl = context as WebGLRenderingContext;
+          webglViewports.set(webgl, [0, 0, webgl.drawingBufferWidth, webgl.drawingBufferHeight]);
+          installWebGlTracing(Object.getPrototypeOf(webgl) as Record<string, unknown>, 'webgl');
+        }
+        if (context && type === 'webgl2') {
+          const webgl = context as WebGL2RenderingContext;
+          webglViewports.set(webgl, [0, 0, webgl.drawingBufferWidth, webgl.drawingBufferHeight]);
+          installWebGlTracing(Object.getPrototypeOf(webgl) as Record<string, unknown>, 'webgl2');
+        }
+        return context;
+      } as typeof HTMLCanvasElement.prototype.getContext;
     }, manifest.browserSettings);
     await page.goto(reference?.targetUrl ?? manifest.targetUrl, {
       waitUntil: manifest.browserSettings.waitUntil,
@@ -1000,6 +1124,11 @@ async function captureTarget(
       );
       return failures.filter((source): source is string => source !== null);
     });
+    const videoWarnings = await stabilizeVideos(
+      page,
+      reference?.videoTimeSeconds,
+      manifest.browserSettings.timeoutMs,
+    );
     const nodes = await page.evaluate(() => {
       const elements = [...document.querySelectorAll('body *')].slice(0, 5000);
       const ids = new Map<Element, string>();
@@ -1097,6 +1226,18 @@ async function captureTarget(
                 },
               }
             : {}),
+          ...(element instanceof HTMLVideoElement
+            ? {
+                video: {
+                  currentTime: element.currentTime,
+                  duration: element.duration,
+                  videoWidth: element.videoWidth,
+                  videoHeight: element.videoHeight,
+                  paused: element.paused,
+                  readyState: element.readyState,
+                },
+              }
+            : {}),
           text: (element.textContent ?? '').trim().slice(0, 160),
         };
       });
@@ -1108,7 +1249,15 @@ async function captureTarget(
           .__glamourCanvasDrawCalls ?? [],
     );
     await context.close();
-    return { png, nodes, canvasDrawCalls, chromiumVersion: browser.version(), unloadedImages };
+    return {
+      png,
+      nodes,
+      canvasDrawCalls,
+      chromiumVersion: browser.version(),
+      unloadedImages,
+      videoWarnings,
+      pageErrors,
+    };
   } finally {
     await browser?.close();
   }
@@ -1757,7 +1906,15 @@ export async function compareProject(
   const manifest = await getProject(projectId);
   const referenceRecord = resolveViewportReference(manifest, referenceId);
   const reference = await normalizeRaster(await readFile(referenceRecord.path));
-  const { png, nodes, canvasDrawCalls, chromiumVersion, unloadedImages } = await captureTarget(
+  const {
+    png,
+    nodes,
+    canvasDrawCalls,
+    chromiumVersion,
+    unloadedImages,
+    videoWarnings,
+    pageErrors,
+  } = await captureTarget(
     manifest,
     referenceRecord.viewport,
     { x: referenceRecord.scrollX, y: referenceRecord.scrollY },
@@ -1820,8 +1977,12 @@ export async function compareProject(
     },
     warnings: [
       ...unloadedImages.map((source) => `An image did not decode before capture: ${source}`),
+      ...videoWarnings,
+      ...pageErrors.map((message) => `Target page error: ${message}`),
       ...(nodes.some((node) => node.tagName === 'canvas') && !canvasDrawCalls.length
-        ? ['A Canvas element is present, but no CanvasRenderingContext2D draw calls were captured.']
+        ? [
+            'A Canvas element is present, but no 2D or WebGL draw calls were captured. The rendered pixels are still compared.',
+          ]
         : []),
     ],
   };
@@ -1834,6 +1995,9 @@ export async function compareProject(
     referenceId: referenceRecord.referenceId,
     targetUrl: referenceRecord.targetUrl ?? manifest.targetUrl,
     viewport: referenceRecord.viewport,
+    ...(referenceRecord.videoTimeSeconds === undefined
+      ? {}
+      : { videoTimeSeconds: referenceRecord.videoTimeSeconds }),
     browser: { name: 'chromium', version: chromiumVersion },
     readiness: result.readiness,
     artifactPaths: { screenshotPath, diffPath },
@@ -2023,6 +2187,7 @@ export async function testOverrides(input: {
     await applyReferenceActions(page, reference.actions, manifest.browserSettings.timeoutMs);
     await waitUntilReady(page, manifest.browserSettings);
     await page.evaluate(async () => await document.fonts.ready);
+    await stabilizeVideos(page, reference.videoTimeSeconds, manifest.browserSettings.timeoutMs);
     const screenshotOptions = clip ? { clip } : {};
     const baseline = await page.screenshot({
       type: 'png',
@@ -2149,6 +2314,101 @@ async function waitUntilReady(page: Page, settings: BrowserSettings): Promise<vo
         (element as HTMLElement).style.visibility = 'hidden';
       }),
     );
+}
+
+async function stabilizeVideos(
+  page: Page,
+  timeSeconds: number | undefined,
+  timeoutMs: number,
+): Promise<string[]> {
+  return page.evaluate(
+    async ({ timeSeconds: requestedTime, timeoutMs: timeout }) => {
+      const warnings: string[] = [];
+      const videos = [...document.querySelectorAll('video')];
+      await Promise.all(
+        videos.map(async (video, index) => {
+          const label = video.id ? `#${video.id}` : `video:nth-of-type(${index + 1})`;
+          video.pause();
+          if (requestedTime === undefined) {
+            warnings.push(
+              `Video ${label} was paused at its current frame; set videoTimeSeconds for repeatable capture.`,
+            );
+            return;
+          }
+          try {
+            if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+              await new Promise<void>((resolve, reject) => {
+                const timer = window.setTimeout(
+                  () => reject(new Error('Timed out waiting for video data.')),
+                  timeout,
+                );
+                video.addEventListener(
+                  'loadeddata',
+                  () => {
+                    window.clearTimeout(timer);
+                    resolve();
+                  },
+                  { once: true },
+                );
+                video.addEventListener(
+                  'error',
+                  () => {
+                    window.clearTimeout(timer);
+                    reject(new Error('Video failed to load.'));
+                  },
+                  { once: true },
+                );
+              });
+            }
+            if (Number.isFinite(video.duration) && requestedTime > video.duration)
+              throw new Error(`Requested time exceeds duration ${video.duration}s.`);
+            const seekable = Array.from(
+              { length: video.seekable.length },
+              (_, index): [number, number] => [
+                video.seekable.start(index),
+                video.seekable.end(index),
+              ],
+            );
+            if (
+              Math.abs(video.currentTime - requestedTime) > 0.01 &&
+              !seekable.some(([start, end]) => requestedTime >= start && requestedTime <= end)
+            )
+              throw new Error(
+                `Requested time is not in the media's seekable ranges (${seekable.map(([start, end]) => `${start}-${end}`).join(', ') || 'none'}).`,
+              );
+            if (Math.abs(video.currentTime - requestedTime) > 0.01) {
+              await new Promise<void>((resolve, reject) => {
+                const timer = window.setTimeout(
+                  () => reject(new Error('Timed out seeking to requested video time.')),
+                  timeout,
+                );
+                const finishSeek = () => {
+                  if (video.seeking || Math.abs(video.currentTime - requestedTime) > 0.05) return;
+                  window.clearTimeout(timer);
+                  video.removeEventListener('seeked', finishSeek);
+                  resolve();
+                };
+                video.addEventListener('seeked', finishSeek);
+                video.currentTime = requestedTime;
+                finishSeek();
+              });
+            }
+            video.pause();
+            if (Math.abs(video.currentTime - requestedTime) > 0.05)
+              throw new Error(
+                `Seek settled at ${video.currentTime}s instead of ${requestedTime}s.`,
+              );
+          } catch (error) {
+            warnings.push(
+              `Could not freeze ${label} at ${requestedTime}s: ${error instanceof Error ? error.message : String(error)}`,
+            );
+          }
+        }),
+      );
+      return warnings;
+    },
+    { timeSeconds, timeoutMs },
+  );
 }
 
 async function runCvWorker(payload: Record<string, unknown>): Promise<Record<string, unknown>> {
@@ -2393,6 +2653,7 @@ export async function optimize(input: {
     await applyReferenceActions(page, reference.actions, project.browserSettings.timeoutMs);
     await waitUntilReady(page, project.browserSettings);
     await page.evaluate(async () => await document.fonts.ready);
+    await stabilizeVideos(page, reference.videoTimeSeconds, project.browserSettings.timeoutMs);
     const locator = page.locator(input.selector).first();
     await locator.waitFor({ state: 'visible', timeout: project.browserSettings.timeoutMs });
     const originalStyle = await locator.getAttribute('style');

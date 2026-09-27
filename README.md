@@ -1,6 +1,6 @@
 # Glamour
 
-Glamour is a local-first visual compiler and debugging workspace for coding agents. It renders an existing web implementation in pinned Playwright Chromium, compares it to one or more references, attributes visual residuals to DOM/SVG/Canvas objects, tests temporary changes, and exports browser-validated vector geometry. Glamour does not generate application source code.
+Glamour is a local-first visual compiler and debugging workspace for coding agents. It renders an existing web implementation in pinned Playwright Chromium, compares it to one or more references, attributes visual residuals to DOM/SVG/Canvas/WebGL objects, tests temporary changes, and exports browser-validated vector geometry. Glamour does not generate application source code.
 
 ## Requirements
 
@@ -66,7 +66,7 @@ The minimum input is a lossless PNG plus exact viewport and DPR. For multi-state
 
 Bundle fields retain provenance (`exact`, `provided`, `measured`, `derived`, `estimated`, `unknown`) and confidence. Scene nodes can store raw measurements separately from semantic interpretation so an estimated role cannot overwrite exact geometry. Explicit facts are surfaced by `analyze`; measured pixel palette, full-page bitmap/content dimensions, and captured browser geometry are distinguished from supplied facts. Multiple references are rendered independently. Responsive changes are observations; breakpoint behavior remains a hypothesis unless supplied explicitly. Crops, assets, font metadata, text blocks, layout relations, scene graph, states, interactions, geometry, and chart data are preserved in the versioned Reference IR.
 
-Each screenshot may set its own `targetUrl` and `actions` so state references are reproducible against the live implementation. Actions run in order before readiness checks and capture. Supported actions are `click`, `hover`, `focus`, `fill`, `press`, `selectOption`, `check`, and `uncheck`; the same setup is replayed for overrides and optimization. For example:
+Each screenshot may set its own `targetUrl`, `actions`, and `videoTimeSeconds` so state references are reproducible against the live implementation. When `videoTimeSeconds` is supplied, compare/override/optimization pause each video, seek to that time when it is in a browser-reported seekable range, and capture the frozen frame. If the media does not expose that time as seekable, Glamour keeps the current frame and reports the limitation instead of silently claiming the requested time was used. Without `videoTimeSeconds`, the current frame is paused with a nondeterminism warning. Actions run in order before readiness checks and capture. Supported actions are `click`, `hover`, `focus`, `fill`, `press`, `selectOption`, `check`, and `uncheck`; the same setup is replayed for overrides and optimization. For example:
 
 ```json
 {
@@ -78,6 +78,8 @@ Each screenshot may set its own `targetUrl` and `actions` so state references ar
   "actions": [{ "type": "click", "selector": "[aria-label='Open menu']" }]
 }
 ```
+
+For an animated/video state, add `"videoTimeSeconds": 2.4` to that screenshot record.
 
 The core exports Zod schemas for the versioned bundle, screenshot/action, asset/font, typography, scene/layout, color/effect, crop, geometry, interaction, responsive mapping, and uncertainty records. Extended records preserve domain-specific fields while validating the shared typed fields.
 
@@ -119,15 +121,17 @@ Tools: `visual.create_project`, `visual.analyze_reference`, `visual.compare`, `v
 
 1. Create a project from a screenshot or prepared bundle.
 2. Compare one or all references in deterministic Chromium (viewport/DPR, locale, timezone, reduced motion, animation suppression, font readiness, optional selector/predicate readiness, and masked selectors are recorded).
-3. Inspect ranked local regions, measured deltas, candidate DOM nodes, SVG metadata, or Canvas draw calls.
+3. Inspect ranked local regions, measured deltas, candidate DOM nodes, SVG metadata, or Canvas/WebGL draw calls.
 4. Test a temporary CSS/SVG override, then run bounded optimization for supported CSS parameters.
 5. Apply a verified source change in the application and repeat. Finalize reports per reference and mismatch family.
 
 Metrics are lower-is-better normalized residuals, not a claim of percent-identical pixels. Chromium version, input SHA-256, target URL, viewport/DPR, artifacts, and warnings are recorded per run. `networkidle` is the default readiness strategy; applications with persistent connections should choose `load` or `domcontentloaded` and provide `readySelector`/predicate. Arbitrary time, randomness, server data, carousels, and external dependencies cannot be frozen automatically; supply stable fixtures/state where needed.
 
-## Geometry and Canvas
+## Geometry, Canvas, WebGL, and video
 
-`visual.extract_geometry` invokes the internal OpenCV/NumPy/scikit-image worker through `uv`, emits SVG (or a Path2D string), and validates its browser render against the source crop. Open strokes are skeletonized and fitted as cubic curves; closed regions are traced as contours. Extraction is an approximate fallback: original vector assets or chart data should take precedence. Warnings and fit/validation loss are returned. Canvas instrumentation is injected before page scripts and records drawing commands, canvas selector, draw ID, transform, paint state, and approximate painted bounds. Clip/state-stack effects and source file/line mapping are not guaranteed; WebGL, video, and 3D are unsupported.
+`visual.extract_geometry` invokes the internal OpenCV/NumPy/scikit-image worker through `uv`, emits SVG (or a Path2D string), and validates its browser render against the source crop. Open strokes are skeletonized and fitted as cubic curves; closed regions are traced as contours. Extraction is an approximate fallback: original vector assets or chart data should take precedence. Warnings and fit/validation loss are returned.
+
+Canvas 2D drawing commands and WebGL/WebGL2 draw calls are instrumented before application scripts. Regions can be attributed to the rendering canvas; WebGL calls also report primitive type, vertex/index count, instance count, viewport bounds and their draw ID. A browser-rendered 3D scene is therefore compared and its WebGL draw activity can be inspected, while its engine-level scene graph, mesh semantics and source component are not inferred from pixels. For video, supply `videoTimeSeconds` on a screenshot reference to seek and freeze the target at a reproducible frame. Complex raster regions can still be inspected and passed through geometry extraction; reconstructed vectors remain approximations, so supplied scene assets or source data take precedence. WebGL clipping and source file/line mapping are not guaranteed.
 
 ## Limitations and safety
 
