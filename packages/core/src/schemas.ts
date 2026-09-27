@@ -53,6 +53,7 @@ export const referenceScreenshotSchema = z.object({
   state: z.string().optional(),
   targetUrl: z.string().url().optional(),
   actions: z.array(referenceActionSchema).default([]),
+  videoTimeSeconds: z.number().nonnegative().optional(),
   sourceType: z
     .enum(['screenshot', 'rectified-photo', 'figma-export', 'unknown'])
     .default('screenshot'),

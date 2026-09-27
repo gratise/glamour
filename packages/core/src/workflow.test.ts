@@ -18,6 +18,7 @@ let webpReferencePath: string;
 let spacingReferencePath: string;
 let tempRoot: string;
 let core: typeof Core;
+let videoFixture: Buffer;
 
 function boundedNumber(value: string | null, fallback: number, minimum: number, maximum: number) {
   if (value === null || value.trim() === '') return fallback;
@@ -132,8 +133,8 @@ beforeAll(async () => {
   spacingReferencePath = path.join(tempRoot, 'spacing-reference.png');
   await writeFile(spacingReferencePath, PNG.sync.write(spacing));
   server = createServer((request, response) => {
-    response.writeHead(200, { 'content-type': 'text/html' });
     const pathname = new URL(request.url ?? '/', 'http://localhost').pathname;
+    if (pathname !== '/sample.webm') response.writeHead(200, { 'content-type': 'text/html' });
     if (pathname === '/canvas') {
       response.end(
         '<!doctype html><html><body style="margin:0;background:white"><canvas id="chart" width="160" height="100"></canvas><script>const c=document.querySelector("canvas").getContext("2d");c.fillStyle="#0055ff";c.fillRect(20,20,40,30)</script></body></html>',
@@ -143,6 +144,50 @@ beforeAll(async () => {
     if (pathname === '/canvas-path') {
       response.end(
         '<!doctype html><html><body style="margin:0;background:white"><canvas id="chart" width="160" height="100"></canvas><script>const c=document.querySelector("canvas").getContext("2d");c.strokeStyle="#dc5a14";c.lineWidth=3;c.beginPath();c.moveTo(15,80);c.bezierCurveTo(40,30,50,25,65,30);c.bezierCurveTo(95,35,120,50,145,42);c.stroke()</script></body></html>',
+      );
+      return;
+    }
+    if (pathname === '/webgl') {
+      const params = new URL(request.url ?? '/', 'http://localhost').searchParams;
+      const color = params.get('color') === 'blue' ? '0.0,0.3,1.0' : '1.0,0.0,0.3';
+      const contextName = params.get('api') === 'webgl2' ? 'webgl2' : 'webgl';
+      const vertexShader =
+        contextName === 'webgl2'
+          ? '#version 300 es\nin vec2 p;void main(){gl_Position=vec4(p,0.0,1.0);}'
+          : 'attribute vec2 p;void main(){gl_Position=vec4(p,0.0,1.0);}';
+      const fragmentShader =
+        contextName === 'webgl2'
+          ? '#version 300 es\nprecision mediump float;uniform vec3 color;out vec4 result;void main(){result=vec4(color,1.0);}'
+          : 'precision mediump float;uniform vec3 color;void main(){gl_FragColor=vec4(color,1.0);}';
+      response.end(
+        `<!doctype html><html><body style="margin:0;background:white"><canvas id="scene" width="160" height="100"></canvas><script>
+          const canvas=document.querySelector('#scene');
+          const gl=canvas.getContext('${contextName}');
+          const vs=gl.createShader(gl.VERTEX_SHADER);gl.shaderSource(vs,${JSON.stringify(vertexShader)});gl.compileShader(vs);
+          const fs=gl.createShader(gl.FRAGMENT_SHADER);gl.shaderSource(fs,${JSON.stringify(fragmentShader)});gl.compileShader(fs);
+          const program=gl.createProgram();gl.attachShader(program,vs);gl.attachShader(program,fs);gl.linkProgram(program);gl.useProgram(program);
+          const buffer=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buffer);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-0.8,-0.8,0.8,-0.8,0.0,0.8]),gl.STATIC_DRAW);
+          const attributeLocation=gl.getAttribLocation(program,'p');gl.enableVertexAttribArray(attributeLocation);gl.vertexAttribPointer(attributeLocation,2,gl.FLOAT,false,0,0);
+          gl.uniform3f(gl.getUniformLocation(program,'color'),${color});gl.viewport(0,0,160,100);gl.drawArrays(gl.TRIANGLES,0,3);
+        </script></body></html>`,
+      );
+      return;
+    }
+    if (pathname === '/sample.webm') {
+      response.writeHead(200, {
+        'content-type': 'video/webm',
+        'content-length': videoFixture.length,
+      });
+      response.end(videoFixture);
+      return;
+    }
+    if (pathname === '/video') {
+      const filter =
+        new URL(request.url ?? '/', 'http://localhost').searchParams.get('tone') === 'alter'
+          ? 'hue-rotate(120deg)'
+          : 'none';
+      response.end(
+        `<!doctype html><html><body style="margin:0;background:white"><video id="film" autoplay muted playsinline src="/sample.webm" style="position:absolute;left:20px;top:20px;width:120px;height:60px;object-fit:fill;filter:${filter}"></video></body></html>`,
       );
       return;
     }
@@ -257,6 +302,47 @@ beforeAll(async () => {
       `<!doctype html><html><body style="margin:0;background:white"><div id="box" style="position:absolute;left:${left}px;top:${top}px;width:${width}px;height:${height}px;background:${color}"></div></body></html>`,
     );
   });
+  const videoBrowser = await chromium.launch({ headless: true });
+  const videoPage = await videoBrowser.newPage();
+  videoFixture = Buffer.from(
+    await videoPage.evaluate(async () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 160;
+      canvas.height = 80;
+      const context = canvas.getContext('2d')!;
+      const stream = canvas.captureStream(10);
+      const recorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp8' });
+      const chunks: Blob[] = [];
+      recorder.addEventListener('dataavailable', (event) => chunks.push(event.data));
+      const paint = (color: string) => {
+        context.fillStyle = color;
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        (stream.getVideoTracks()[0] as CanvasCaptureMediaStreamTrack).requestFrame();
+      };
+      const bytes = new Promise<number[]>((resolve, reject) => {
+        recorder.addEventListener('error', () =>
+          reject(new Error('Video fixture recording failed.')),
+        );
+        recorder.addEventListener('stop', async () => {
+          const blob = new Blob(chunks, { type: 'video/webm' });
+          resolve(Array.from(new Uint8Array(await blob.arrayBuffer())));
+        });
+      });
+      recorder.start(100);
+      paint('#ff00b4');
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      paint('#0055ff');
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      paint('#00aa00');
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      recorder.stop();
+      stream.getTracks().forEach((track) => track.stop());
+      return bytes;
+    }),
+  );
+  await videoBrowser.close();
+  if (videoFixture.byteLength < 256)
+    throw new Error('Recorded WebM test fixture is unexpectedly small.');
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const address = server.address();
   if (!address || typeof address === 'string')
@@ -628,6 +714,91 @@ describe('DOM visual workflow', () => {
         return x < dx + dw && x + width > dx && y < dy + dh && y + height > dy;
       }),
     ).toBe(true);
+  }, 30_000);
+
+  it('traces WebGL and WebGL2 draw calls to their canvas regions', async () => {
+    const browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage({ viewport: { width: 160, height: 100 } });
+    for (const api of ['webgl', 'webgl2'] as const) {
+      await page.goto(`${baseUrl}/webgl?api=${api}&color=red`);
+      const webglReference = path.join(tempRoot, `${api}-reference.png`);
+      await writeFile(webglReference, await page.screenshot({ type: 'png' }));
+      const project = await core.createProject({
+        name: `${api}-triangle-fixture`,
+        referencePath: webglReference,
+        targetUrl: `${baseUrl}/webgl?api=${api}&color=blue`,
+        viewport: { width: 160, height: 100, deviceScaleFactor: 1 },
+      });
+      const result = await core.compareProject(project.projectId);
+      const draw = result.canvasDrawCalls.find((call) => call.api === api);
+      expect(draw).toMatchObject({
+        selector: '#scene',
+        method: 'drawArrays',
+        primitive: 'triangles',
+        vertexCount: 3,
+      });
+      expect(
+        result.regions.some((region) =>
+          region.candidates.some((candidate) => candidate.selector === '#scene'),
+        ),
+      ).toBe(true);
+    }
+    await browser.close();
+  }, 30_000);
+
+  it('freezes video frames and reports when a requested time is not seekable', async () => {
+    const browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage({ viewport: { width: 160, height: 100 } });
+    await page.goto(`${baseUrl}/video`, { waitUntil: 'domcontentloaded' });
+    await page.waitForFunction(
+      () => {
+        const video = document.querySelector('video');
+        return Boolean(
+          video && (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA || video.error),
+        );
+      },
+      undefined,
+      { timeout: 5_000 },
+    );
+    await page.locator('#film').evaluate((element) => (element as HTMLVideoElement).pause());
+    const videoReference = path.join(tempRoot, 'video-reference.png');
+    await writeFile(videoReference, await page.screenshot({ type: 'png' }));
+    await browser.close();
+
+    const bundlePath = path.join(tempRoot, 'video-bundle');
+    await mkdir(path.join(bundlePath, 'screenshots'), { recursive: true });
+    const referenceImagePath = path.join(bundlePath, 'screenshots', 'video.png');
+    await writeFile(referenceImagePath, await readFile(videoReference));
+    await writeFile(
+      path.join(bundlePath, 'manifest.json'),
+      JSON.stringify({
+        schemaVersion: '1',
+        name: 'video-frame-fixture',
+        screenshots: [
+          {
+            referenceId: 'video-frame',
+            path: 'screenshots/video.png',
+            viewport: { width: 160, height: 100, deviceScaleFactor: 1 },
+            targetUrl: `${baseUrl}/video?tone=alter`,
+            videoTimeSeconds: 0.2,
+          },
+        ],
+      }),
+    );
+    const project = await core.createProject({
+      name: 'video-frame-fixture',
+      referenceBundlePath: bundlePath,
+      targetUrl: `${baseUrl}/video?tone=alter`,
+    });
+    expect(project.references[0]?.videoTimeSeconds).toBe(0.2);
+    const result = await core.compareProject(project.projectId);
+    const videoNode = result.nodes.find((node) => node.selector === '#film');
+    expect(videoNode?.video).toMatchObject({ paused: true, videoWidth: 160, videoHeight: 80 });
+    expect(videoNode?.video?.currentTime).toBeGreaterThan(0.1);
+    expect(result.warnings.join('\n')).toContain(
+      "Requested time is not in the media's seekable ranges",
+    );
+    expect(result.regions.some((region) => region.candidates[0]?.selector === '#film')).toBe(true);
   }, 30_000);
 
   it('attributes an SVG Bézier control-point change to captured path geometry', async () => {
